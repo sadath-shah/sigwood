@@ -83,6 +83,13 @@ The tag in step 4 must point at a commit that already carries the new version.
 
 ### 2 · Land release docs
 
+**Roll the changelog.** Move every entry under `[Unreleased]` in `CHANGELOG.md` into a
+new `## [X.Y.Z] - <today>` section, leave an empty `[Unreleased]` behind, and repoint the
+`[Unreleased]` link at the bottom of the file while adding a reference for the new
+version. Land it in the same commit as the step-1 version bump, so the tagged commit
+carries the released changelog - and paste that new section as the GitHub Release notes in
+step 6 rather than re-deriving them from `git log`.
+
 Anything that ships in the release (README status line, `CONTRIBUTING.md`, new docs)
 lands and is pushed **now**, so the tagged commit is the released state. Write the
 release notes for the GitHub Release (step 6) from the commits since the last tag:

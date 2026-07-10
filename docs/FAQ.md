@@ -323,6 +323,12 @@ reproduced.
 
 ## The project
 
+### A brand-new repo, one commit, tidy docs - was this written by AI?
+
+Yes, development was AI-assisted, no point being coy about it. The rest has a less exciting explanation than you might hope. sigwood was built over a few months against one homelab with Zeek, Pi-hole, syslog, a small CloudTrail corpus, and only opened up once it did something useful. The history starts at a single squashed commit because the real history was full of explorations that included that homelab's own IPs, hostnames, and other assets. Squashing was the cleanest way to get every example into line with RFC 5737 (the 192.0.2.x ranges throughout) with nothing real left in the tree. So a repo that looks like it appeared fully formed from Zeus's forehead is really just one person's ordinary, messy iteration, compressed into a single public commit, with the mess kept private for a reason.
+
+In any case, this is not a way of asking for trust; the hope is that trust is unnecessary. The detection methods aren't inventions: FFT for periodicity, HDBSCAN for clustering, drain3 for templating, a plain z-score composite. All named, published techniques you can look up, credited elsewhere in this FAQ. The privacy claim you can check yourself: tldextract is pinned to run offline, so the tool talks to no one. The test suite is deterministic and passes on a cold install. And [KNOWN-ISSUES.md](KNOWN-ISSUES.md) names and quantifies the tool's own flaws rather than burying them. Read the code, run the tests, point it at your own logs - that will tell you more than this paragraph can.
+
 ### What state is sigwood in?
 
 Early, pre-1.0. The six detectors above work and are covered by tests. Five more -

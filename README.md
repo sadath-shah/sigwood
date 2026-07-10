@@ -57,6 +57,19 @@ sigwood init
 No config file is required to get started - `sigwood <path>` works against a directory or
 a single file. `sigwood init` just makes it repeatable.
 
+**No logs handy?** sigwood ships a small synthetic corpus - one compromised host, without any real network data - so you can watch it work before pointing it at your own logs:
+
+```bash
+git clone https://github.com/helixmap/sigwood
+cd sigwood
+python demo/gen_corpus.py                  # writes a synthetic corpus; no network calls
+sigwood hunt --config=demo/sigwood.toml    # beacons, a DGA burst, and the matching syslog trail
+```
+
+The generated logs live under `demo/corpus/` (gitignored). The full walkthrough -
+including what each detector should surface - is in
+[`demo/README.md`](https://github.com/helixmap/sigwood/blob/main/demo/README.md).
+
 ## Why use sigwood?
 
 - **It runs where your logs are.** No services, no database, no daemon, no agent to push.

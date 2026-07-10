@@ -1,0 +1,66 @@
+# Changelog
+
+All notable changes to sigwood are recorded here. The format follows
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and sigwood aims to follow
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Changed
+
+- Source and development install instructions in the README now create a virtualenv
+  first, so a `pip install -e` in a fresh clone doesn't hit the PEP 668
+  `externally-managed-environment` refusal on Debian, Raspberry Pi OS, or Fedora.
+- Splunk export now reports a TLS certificate-verification failure with an actionable
+  message, naming the `verify_tls = false` setting under `[export.splunk]` for a
+  self-signed certificate on a trusted network, instead of a generic connection error.
+
+### Fixed
+
+- Copy polish in the `init` wizard prompts.
+
+### Security
+
+- Output now strips terminal control bytes through a single sanitizer - including the
+  surrogate-escaped bytes a non-UTF-8 filename decodes to - so a hostile file or directory
+  name in a scanned tree can no longer inject terminal escape sequences, whether it reaches
+  the analyst through a stderr diagnostic or a text, html, or csv report.
+
+## [0.1.0] - 2026-07-10
+
+First public release. A local-first, offline command-line threat-hunting workbench:
+point it at logs you already have and read the output. No database, no daemon, no
+agent, no account.
+
+### Added
+
+- Six detectors, each naming its own technique on every run:
+  - `beacon` - periodic C2-style callbacks, via an FFT over connection timing
+    (Zeek `conn.log`).
+  - `dns` - DGA, tunneling, and anomalous lookups, via HDBSCAN clustering
+    (Zeek `dns.log` or Pi-hole/dnsmasq).
+  - `syslog` - rare events and reboots, via drain3 log-templating plus rarity scoring
+    (flat RFC 3164 syslog or Zeek `syslog.log`).
+  - `scan` - vertical, horizontal, block, and slow port scans (Zeek `conn.log`).
+  - `duration` - abnormally long-lived connections (Zeek `conn.log`).
+  - `aws` - per-principal anomalous CloudTrail behavior, via a transparent per-principal
+    z-score composite.
+- `digest` verb - a fast, factual profile of a single file (time window, top talkers, a
+  scale-anchored histogram, plain-language insights) that states facts, never verdicts,
+  and falls back to a bounded byte-profiler for files it doesn't recognize.
+- Log sources: Zeek (NDJSON and TSV, flat or date-partitioned directories),
+  Pi-hole/dnsmasq, flat RFC 3164 syslog (Debian and RHEL/Fedora layouts), and CloudTrail.
+  Rotation and gzip/bzip2/xz compression are handled transparently.
+- Output formats: `text` (default), `html`, and `pdf` reading views (honoring `-v`/`-vv`),
+  plus `json` (a lossless, typed machine feed) and `csv` (a remediation worklist).
+- An allowlist that suppresses known-harmless traffic before any detector runs - three
+  curated domain lists (`common`, `devices`, `homelab`), user drop-ins, and per-run
+  coverage disclosure - managed with the `allowlist` verb.
+- Exporters that pull logs from Splunk and CloudTrail (S3) into local files for analysis.
+- `init` - a detection-driven first-run wizard that profiles what's on disk and writes an
+  annotated config under `~/.sigwood/`.
+- Analysis-window controls (`--since`/`--until`/`--days`/`--all`), a per-source default
+  lookback window, and local-or-UTC time rendering.
+
+[Unreleased]: https://github.com/helixmap/sigwood/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/helixmap/sigwood/releases/tag/v0.1.0
