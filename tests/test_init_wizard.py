@@ -1834,7 +1834,7 @@ def test_fresh_asks_home_once_no_separate_root_prompt(
     _stage_inputs(monkeypatch, ["", "", "", "", "", ""])  # 4 skip, location, accept
     cli._run_init([])
     out = capsys.readouterr().out
-    assert out.count("where should sigwood live") == 1
+    assert out.count(cli._FRESH_LOCATION_LEAD) == 1
     assert "root is set to" not in out
     parsed = tomllib.loads((home / "config.toml").read_text(encoding="utf-8"))
     assert parsed["sigwood"]["root"] == "~/.sigwood"

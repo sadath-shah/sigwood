@@ -366,6 +366,61 @@ def test_fetch_formats_splunk_connection_error(monkeypatch: pytest.MonkeyPatch) 
     assert "192.0.2.20:8089" in msg
 
 
+def test_fetch_formats_tls_cert_verification_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A verify_tls handshake failure names the actual cause and the knob - never
+    the generic host/port/credentials message (which points everywhere but the cert)."""
+    import ssl
+
+    import sigwood.exporters.splunk as splunk_module
+
+    class FakeClient:
+        @staticmethod
+        def connect(**_kwargs):
+            raise ssl.SSLCertVerificationError(
+                1,
+                "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
+                "self-signed certificate in certificate chain",
+            )
+
+    monkeypatch.setattr(splunk_module, "splunk_client", FakeClient)
+    since = datetime(2026, 5, 29, 0, 0, 0)
+    until = datetime(2026, 5, 29, 1, 0, 0)
+
+    with pytest.raises(ValueError) as exc_info:
+        splunk_module.fetch(
+            {"spl": "search *"},
+            {"host": "192.0.2.20", "port": 8089, "username": "u", "password": "p"},
+            since,
+            until,
+            False,
+        )
+
+    msg = str(exc_info.value)
+    assert "TLS certificate verification failed" in msg
+    assert "192.0.2.20:8089" in msg
+    assert "verify_tls = false" in msg
+    assert "could not connect" not in msg
+
+
+def test_sdk_error_message_detects_wrapped_cert_failure() -> None:
+    """The cert-failure check walks the exception chain, so a wrapper that
+    re-raises around the SSL error still gets the TLS message."""
+    import ssl
+
+    import sigwood.exporters.splunk as splunk_module
+
+    inner = ssl.SSLCertVerificationError(1, "certificate verify failed")
+    try:
+        try:
+            raise inner
+        except ssl.SSLCertVerificationError as e:
+            raise RuntimeError("wrapped by a transport layer") from e
+    except RuntimeError as wrapper:
+        msg = splunk_module._sdk_error_message(wrapper, "192.0.2.20", 8089)
+    assert "TLS certificate verification failed" in msg
+    assert "verify_tls = false" in msg
+
+
 def test_default_splunk_export_dir_is_global_default(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

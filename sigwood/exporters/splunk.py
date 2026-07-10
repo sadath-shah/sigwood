@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+import ssl
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -71,8 +72,33 @@ def _get_credentials(config: dict[str, Any]) -> tuple[str, str]:
     return user, passwd
 
 
+def _is_cert_verification_failure(exc: BaseException) -> bool:
+    """True when the exception chain carries a TLS certificate-verification failure.
+
+    splunklib surfaces ``ssl.SSLCertVerificationError`` raw from ``connect``, but a
+    wrapper could re-raise it - walk ``__cause__``/``__context__`` so the failure is
+    recognized wherever it sits in the chain.
+    """
+    seen: set[int] = set()
+    e: BaseException | None = exc
+    while e is not None and id(e) not in seen:
+        seen.add(id(e))
+        if isinstance(e, ssl.SSLCertVerificationError):
+            return True
+        e = e.__cause__ or e.__context__
+    return False
+
+
 def _sdk_error_message(exc: Exception, host: str, port: int) -> str:
     """Return an actionable user-facing message for Splunk SDK failures."""
+    if _is_cert_verification_failure(exc):
+        return (
+            f"TLS certificate verification failed for Splunk at {host}:{port} - the "
+            "server presented a certificate no local trust store accepts (Splunk's "
+            "default self-signed certificate is the common case). For a self-signed "
+            "certificate on a trusted network, set verify_tls = false under "
+            "[export.splunk]."
+        )
     exc_name = exc.__class__.__name__
     if exc_name == "AuthenticationError":
         return (

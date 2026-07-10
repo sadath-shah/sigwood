@@ -112,7 +112,7 @@ _SYSTEM_ROOT: str = "/etc/sigwood"
 # location picks the config HOME + root; the unset-root menu sets the data ROOT
 # only (the config path is fixed there - do NOT imply moving it).
 _FRESH_LOCATION_LEAD: str = (
-    "where should sigwood live - its config, exports, and reports?"
+    "Where should sigwood live - its config, exports, and reports?"
 )
 _UNSET_ROOT_LEAD: str = (
     "root isn't set - where should sigwood store exports and reports?"
