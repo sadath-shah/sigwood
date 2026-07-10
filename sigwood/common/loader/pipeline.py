@@ -24,6 +24,7 @@ import pandas as pd
 
 import sigwood.common.loader as _loader  # facade: _open_log / progress patch-through (call-time only)
 from sigwood.common.config import parse_window_span
+from sigwood.common.sanitize import strip_control
 from sigwood.common.loader.diagnostics import (
     _cloudtrail_parse_warning,
     _log_type,
@@ -632,7 +633,7 @@ def run_load(
                     # is NOT fired for a skipped file so the coverage
                     # disclosure doesn't mislead.
                     if verbose:
-                        print(skip_msg, file=sys.stderr)
+                        print(strip_control(skip_msg), file=sys.stderr)
                     continue
             attempted_this_file = True
             attempted += 1

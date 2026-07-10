@@ -44,6 +44,7 @@ except ImportError:
 
 from sigwood.common.display import fmt_window, liveness, plural
 from sigwood.common.errors import ExportAborted
+from sigwood.common.sanitize import strip_control
 
 
 _YEAR_RE = re.compile(r"^\d{4}/$")
@@ -416,7 +417,7 @@ def fetch(
                 envelope = json.load(gz)
             events.extend(envelope.get("Records", []) or [])
         except (gzip.BadGzipFile, json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
-            print(f"skipped unreadable object: {key} ({exc})", file=sys.stderr)
+            print(f"skipped unreadable object: {strip_control(key)} ({strip_control(exc)})", file=sys.stderr)
             continue
 
     # Sort + trim - one logical "order and window" operation. delay=0.25 so

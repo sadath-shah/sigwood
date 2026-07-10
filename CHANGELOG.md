@@ -25,6 +25,10 @@ All notable changes to sigwood are recorded here. The format follows
   surrogate-escaped bytes a non-UTF-8 filename decodes to - so a hostile file or directory
   name in a scanned tree can no longer inject terminal escape sequences, whether it reaches
   the analyst through a stderr diagnostic or a text, html, or csv report.
+- That sanitizer now also covers the remaining command-line surfaces - the error boundary,
+  `digest` narration, the `--dry-run` banner, and loader and export status messages - so a
+  hostile file, directory, or configured path name cannot inject terminal escapes through
+  any of them.
 
 ## [0.1.0] - 2026-07-10
 

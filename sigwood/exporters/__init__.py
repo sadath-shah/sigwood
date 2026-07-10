@@ -77,6 +77,7 @@ from sigwood.common.display import (
 )
 from sigwood.common.errors import ExportAborted  # noqa: F401  (re-export)
 from sigwood.common.paths import be_like_water, effective_root, resolve_path
+from sigwood.common.sanitize import strip_control
 
 
 def _backend_cfg(config: dict[str, Any], name: str) -> dict[str, Any]:
@@ -203,7 +204,7 @@ def run_export(
     # auto-select chatter on stderr.
     print(
         f"sigwood export · {resolved_backend} "
-        f"({backend_module.summary_descriptor(backend_cfg)})"
+        f"({strip_control(backend_module.summary_descriptor(backend_cfg))})"
     )
 
     def _span_str() -> str:
@@ -226,8 +227,8 @@ def run_export(
         if len(paths) > 1:
             path_display += f" (+{len(paths) - 1} more)"
         print(
-            f"{query_name} · {n_written:,} lines · "
-            f"{human_bytes(bytes_written)} → {path_display}"
+            f"{strip_control(query_name)} · {n_written:,} lines · "
+            f"{human_bytes(bytes_written)} → {strip_control(path_display)}"
         )
         return n_written, bytes_written
 

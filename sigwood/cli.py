@@ -38,7 +38,7 @@ from sigwood.common.display import (
 from sigwood.common.errors import DigestEmpty, ExportAborted, UsageError
 from sigwood.common.output import get_handler
 from sigwood.common.paths import be_like_water, effective_root, resolve_path, unique_path
-from sigwood.outputs._sanitize import strip_control
+from sigwood.common.sanitize import strip_control
 
 
 # ── flag/verb spec ────────────────────────────────────────────────────────────
@@ -203,23 +203,23 @@ def main(argv: list[str] | None = None) -> None:
         print("sigwood: unexpected end of input", file=sys.stderr)
         sys.exit(1)
     except ExportAborted as exc:
-        print(str(exc))
+        print(strip_control(exc))
         sys.exit(0)
     except cfg.ConfigError as exc:
-        print(f"sigwood: {exc}", file=sys.stderr)
+        print(f"sigwood: {strip_control(exc)}", file=sys.stderr)
         sys.exit(1)
     except UsageError as exc:
         # Argument / flag / form errors - the ONE place the usage pointer is
         # appended. UsageError subclasses ValueError, so this arm must precede
         # the plain-ValueError arm below.
-        print(f"sigwood: {exc}", file=sys.stderr)
+        print(f"sigwood: {strip_control(exc)}", file=sys.stderr)
         print("run 'sigwood --help' for usage", file=sys.stderr)
         sys.exit(1)
     except ValueError as exc:
-        print(f"sigwood: {exc}", file=sys.stderr)
+        print(f"sigwood: {strip_control(exc)}", file=sys.stderr)
         sys.exit(1)
     except OSError as exc:
-        print(f"sigwood: {exc}", file=sys.stderr)
+        print(f"sigwood: {strip_control(exc)}", file=sys.stderr)
         sys.exit(1)
     if rc:
         sys.exit(rc)
@@ -263,7 +263,7 @@ def _main(argv: list[str] | None = None) -> int:
         # _leading_flag_verb_hint.
         leading_flag = cand.startswith("-")
     else:
-        print(f"sigwood: unknown command '{cand}'", file=sys.stderr)
+        print(f"sigwood: unknown command '{strip_control(cand)}'", file=sys.stderr)
         print("run 'sigwood --help' for usage", file=sys.stderr)
         sys.exit(1)
 
@@ -1142,7 +1142,7 @@ def _run_digest(args: list[str]) -> int:
             # configured directory). The file was understood - narrate
             # without a card and exit 0.
             print(
-                f"sigwood: {exc.basename}: recognized as {exc.schema}, "
+                f"sigwood: {strip_control(exc.basename)}: recognized as {exc.schema}, "
                 "no parseable records - skipping",
                 file=sys.stderr,
             )
@@ -1152,7 +1152,7 @@ def _run_digest(args: list[str]) -> int:
         # (output_file None) and --dry-run report nothing.
         out_file = kwargs.get("output_file")
         if out_file is not None and not parsed.get("dry_run") and not quiet:
-            print(f"wrote digest to {compact_home(out_file)}", file=sys.stderr)
+            print(f"wrote digest to {strip_control(compact_home(out_file))}", file=sys.stderr)
         return 0
 
     # Fan-out path. Resolve the shared output target ONCE - never per path.
@@ -1168,7 +1168,7 @@ def _run_digest(args: list[str]) -> int:
         for raw in paths_raw:
             path = Path(os.path.expanduser(raw))
             if not path.exists():
-                print(f"sigwood: {path}: not found", file=sys.stderr)
+                print(f"sigwood: {strip_control(path)}: not found", file=sys.stderr)
                 errored += 1
                 continue
             if path.is_dir():
@@ -1178,7 +1178,7 @@ def _run_digest(args: list[str]) -> int:
                 # stderr message and exit 1.
                 if len(paths_raw) == 1:
                     print(
-                        f"sigwood: {path}: is a directory - digest takes a file",
+                        f"sigwood: {strip_control(path)}: is a directory - digest takes a file",
                         file=sys.stderr,
                     )
                     errored += 1
@@ -1186,7 +1186,7 @@ def _run_digest(args: list[str]) -> int:
             try:
                 result = sniff_format_detailed(path)
                 if result.state == "empty":
-                    print(f"{path.name} is empty - nothing to do")
+                    print(f"{strip_control(path.name)} is empty - nothing to do")
                     empty += 1
                     continue
                 parsed_for_path, schema = _route_sniffed_path(
@@ -1206,7 +1206,7 @@ def _run_digest(args: list[str]) -> int:
                 )
             except DigestEmpty as exc:
                 print(
-                    f"sigwood: {exc.basename}: recognized as {exc.schema}, "
+                    f"sigwood: {strip_control(exc.basename)}: recognized as {exc.schema}, "
                     "no parseable records - skipping",
                     file=sys.stderr,
                 )
@@ -1214,14 +1214,14 @@ def _run_digest(args: list[str]) -> int:
                 continue
             except PermissionError:
                 print(
-                    f"sigwood: {_permission_denied_message(path)}",
+                    f"sigwood: {strip_control(_permission_denied_message(path))}",
                     file=sys.stderr,
                 )
                 permission_errored += 1
                 errored += 1
                 continue
             except (ValueError, OSError) as exc:
-                print(f"sigwood: {path.name}: {exc}", file=sys.stderr)
+                print(f"sigwood: {strip_control(path.name)}: {strip_control(exc)}", file=sys.stderr)
                 errored += 1
                 continue
             rendered += 1
@@ -1231,7 +1231,7 @@ def _run_digest(args: list[str]) -> int:
     # Report the written file ONLY after a card rendered AND the stream closed
     # cleanly. dest_path is None for stdout / dry-run; -q suppresses the line.
     if rendered > 0 and dest_path is not None and not quiet:
-        print(f"wrote digest to {compact_home(dest_path)}", file=sys.stderr)
+        print(f"wrote digest to {strip_control(compact_home(dest_path))}", file=sys.stderr)
 
     if permission_errored > 0:
         return 1

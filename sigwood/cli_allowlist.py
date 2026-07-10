@@ -26,7 +26,7 @@ from sigwood.common import allowlist as al
 from sigwood.common import config as cfg
 from sigwood.common.display import compact_home, plural
 from sigwood.common.errors import UsageError
-from sigwood.outputs._sanitize import strip_control
+from sigwood.common.sanitize import strip_control
 
 _VALID_SUBCOMMANDS = ("show", "enable", "disable", "copy")
 

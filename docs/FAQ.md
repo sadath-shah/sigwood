@@ -34,6 +34,15 @@ alone, sigwood tells you so and keeps working; you just get DNS analysis without
 connection correlation. Point it at whatever you have. That said, Zeek is awesome and you 
 *should* get it: https://zeek.org/
 
+### What about Pi-hole?
+
+Also not required and for the same reason: the detectors are independent of each
+other and of their log formats. The dns detector works just fine on Zeek's dns.log.
+If you do have a Pi-hole, however, sigwood offers rich support, incorporating
+the `was-blocked` disposition of a query in its findings. It needs the flat
+query log (pihole.log), so query logging has to be on; it doesn't read the FTL
+database (yet). Pi-hole is a great project and is worth a look: https://pi-hole.net/
+
 ### How is this different from a SIEM? From an IDS?
 
 A SIEM is an always-on platform: it ingests continuously, stores everything, and alerts in
@@ -327,7 +336,7 @@ reproduced.
 
 Yes, development was AI-assisted, no point being coy about it. The rest has a less exciting explanation than you might hope. sigwood was built over a few months against one homelab with Zeek, Pi-hole, syslog, a small CloudTrail corpus, and only opened up once it did something useful. The history starts at a single squashed commit because the real history was full of explorations that included that homelab's own IPs, hostnames, and other assets. Squashing was the cleanest way to get every example into line with RFC 5737 (the 192.0.2.x ranges throughout) with nothing real left in the tree. So a repo that looks like it appeared fully formed from Zeus's forehead is really just one person's ordinary, messy iteration, compressed into a single public commit, with the mess kept private for a reason.
 
-In any case, this is not a way of asking for trust; the hope is that trust is unnecessary. The detection methods aren't inventions: FFT for periodicity, HDBSCAN for clustering, drain3 for templating, a plain z-score composite. All named, published techniques you can look up, credited elsewhere in this FAQ. The privacy claim you can check yourself: tldextract is pinned to run offline, so the tool talks to no one. The test suite is deterministic and passes on a cold install. And [KNOWN-ISSUES.md](KNOWN-ISSUES.md) names and quantifies the tool's own flaws rather than burying them. Read the code, run the tests, point it at your own logs - that will tell you more than this paragraph can.
+None of this is a way of asking for trust; the hope is for trust to be unnecessary. The detection methods aren't inventions: FFT for periodicity, HDBSCAN for clustering, drain3 for templating, a plain z-score composite. All named, published techniques you can look up, credited elsewhere in this FAQ. The privacy claim you can check yourself: tldextract is pinned to run offline, so the tool talks to no one. The test suite is deterministic and passes on a cold install. And [KNOWN-ISSUES.md](KNOWN-ISSUES.md) names and quantifies the tool's own flaws rather than burying them. Read the code, run the tests, point it at your own logs - that will tell you more than this paragraph can.
 
 ### What state is sigwood in?
 

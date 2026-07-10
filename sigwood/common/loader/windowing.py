@@ -30,6 +30,7 @@ from sigwood.common.loader.types import (
     _data_window,
 )
 from sigwood.parsers.syslog import parse_timestamp as _parse_syslog_ts
+from sigwood.common.sanitize import strip_control
 
 
 @dataclass(frozen=True)
@@ -479,7 +480,7 @@ def _rotation_windowed_files(
 
     if verbose:
         for name, _ts in skipped_all:
-            print(f"skipped {name} (outside the window)", file=sys.stderr)
+            print(f"skipped {strip_control(name)} (outside the window)", file=sys.stderr)
 
     return selected_all, RotationSkipInfo(
         loaded=len(selected_all),

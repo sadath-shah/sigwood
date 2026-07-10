@@ -866,6 +866,46 @@ def test_digest_bare_narrates_written_file(
     assert f"wrote digest to {target}" in capsys.readouterr().err
 
 
+def test_digest_fanout_narration_strips_control_bytes(
+    tmp_path: Path, monkeypatch, capsys,
+) -> None:
+    """A control byte in the fan-out --out directory must not reach the
+    `wrote digest to <path>` completion line raw (--out is operator/config input
+    and the line is intended for a terminal or log)."""
+    _stub_config(monkeypatch)
+    monkeypatch.setattr(runner, "run_digest", lambda **kw: kw["stream"].write("x\n"))
+    conn = tmp_path / "conn.log"
+    conn.write_text(_ZEEK_NDJSON_CONN_LINE, encoding="utf-8")
+    out_dir = tmp_path / f"out{chr(0x1b)}zone"
+
+    rc = cli._main(["digest", str(conn), f"--out={out_dir}/"])
+
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "wrote digest to" in err          # the narration rendered
+    assert "outzone" in err                  # the (stripped) directory name
+    assert chr(0x1b) not in err
+
+
+def test_digest_bare_narration_strips_control_bytes(
+    tmp_path: Path, monkeypatch, capsys,
+) -> None:
+    """A control byte in the bare-config --out file must not reach the
+    `wrote digest to <path>` completion line raw."""
+    cfg_zeek = tmp_path / "zeek"
+    cfg_zeek.mkdir()
+    _stub_config(monkeypatch, {"sigwood": {"zeek_dir": str(cfg_zeek)}})
+    monkeypatch.setattr(runner, "run_digest", lambda **kw: None)  # clean return
+    target = tmp_path / f"card{chr(0x1b)}zone.txt"
+
+    rc = cli._main(["digest", f"--out={target}"])
+
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "cardzone.txt" in err             # the (stripped) file name
+    assert chr(0x1b) not in err
+
+
 # ─── Detect-path regression: parsed["paths"] does not bleed into detector ──
 
 

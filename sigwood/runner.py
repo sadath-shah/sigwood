@@ -47,7 +47,7 @@ from sigwood.common.sources import (
     resolve_digest_source,
     resolve_sources,
 )
-from sigwood.outputs._sanitize import strip_control
+from sigwood.common.sanitize import strip_control
 
 _WIDTH = TEXT_RULE_WIDTH
 _SEP = TEXT_RULE
@@ -1092,7 +1092,7 @@ def _print_family_block(label: str, paths: list[Path], formatter) -> None:
     if not paths:
         print(f"{head}  not configured")
         return
-    entries = [formatter(p) for p in paths]
+    entries = [strip_control(formatter(p)) for p in paths]
     print(f"{head}  {entries[0]}")
     for e in entries[1:]:
         print(f"{indent}  {e}")
@@ -1151,7 +1151,7 @@ def _print_dry_run(
         by_reason.setdefault(reason, []).append(name)
 
     for reason, names in by_reason.items():
-        print(f"{'skipped:':<{_BANNER_LABEL_WIDTH}}  {', '.join(names)} - {reason}")
+        print(f"{'skipped:':<{_BANNER_LABEL_WIDTH}}  {', '.join(names)} - {strip_control(reason)}")
 
     print(_SEP_DOUBLE)
     print("dry run - remove --dry-run to analyze")
@@ -1959,7 +1959,7 @@ def run_digest(
             print("sigwood  ·  digest  ·  dry run")
             print(_SEP)
             print(f"  {'schema:':<{_BANNER_LABEL_WIDTH}} blob")
-            print(f"  {'path:':<{_BANNER_LABEL_WIDTH}} {blob_path}")
+            print(f"  {'path:':<{_BANNER_LABEL_WIDTH}} {strip_control(blob_path)}")
             print(f"  {'window:':<{_BANNER_LABEL_WIDTH}} (none - blob extracts no fields)")
             print(_SEP)
             return
@@ -2035,7 +2035,7 @@ def run_digest(
         print(f"  {'schema:':<{_BANNER_LABEL_WIDTH}} {schema}")
         if feed is not None:
             print(f"  {'feed:':<{_BANNER_LABEL_WIDTH}} {feed}")
-        print(f"  {source_key + ':':<{_BANNER_LABEL_WIDTH}} {source_dir}")
+        print(f"  {source_key + ':':<{_BANNER_LABEL_WIDTH}} {strip_control(source_dir)}")
         if dated_window is not None:
             print(
                 f"  {'window:':<{_BANNER_LABEL_WIDTH}} {fmt_window(dated_window)}  "
