@@ -1,0 +1,149 @@
+"""Resolver + matcher spine + scope-blind count helpers.
+
+The single spine: ``resolve_allowlist_plan`` returns the COMPLETE resolved state
+(even master-off); ``matcher_from_plan`` is where master-off / force-off becomes
+an empty matcher. Count helpers mirror the filter exactly, scope-blind.
+
+Fixtures use example.com / RFC 5737 only.
+"""
+
+from __future__ import annotations
+
+import pandas as pd
+
+from sigwood.common import allowlist as al
+
+
+# ── resolver ──────────────────────────────────────────────────────────────────
+
+
+def test_plan_shape_default() -> None:
+    plan = al.resolve_allowlist_plan({})
+    assert plan.master_enabled is True
+    names = {rl.name for rl in plan.lists if rl.origin == "shipped"}
+    assert names == {spec.name for spec in al._SHIPPED_LISTS}
+    # entries is a tuple (carried for classification / future detectors).
+    assert isinstance(plan.entries, tuple)
+
+
+def test_homelab_default_off_not_loaded() -> None:
+    plan = al.resolve_allowlist_plan({})
+    homelab = next(rl for rl in plan.lists if rl.name == "homelab")
+    assert homelab.enabled is False
+    # pattern_count is INDEPENDENT of enabled - a disabled list still reads its size.
+    assert homelab.pattern_count == len(al.load_pattern_file(homelab.path))
+    assert homelab.pattern_count > 0
+
+    matcher = al.matcher_from_plan(plan)
+    common = next(rl for rl in plan.lists if rl.name == "common")
+    devices = next(rl for rl in plan.lists if rl.name == "devices")
+    assert len(matcher._domain_patterns) == common.pattern_count + devices.pattern_count
+
+
+def test_homelab_toggle_on_loads() -> None:
+    plan = al.resolve_allowlist_plan({"allowlist": {"lists": {"homelab": True}}})
+    homelab = next(rl for rl in plan.lists if rl.name == "homelab")
+    assert homelab.enabled is True
+    assert homelab.state_reason == "config"
+
+    matcher = al.matcher_from_plan(plan)
+    base = al.matcher_from_plan(al.resolve_allowlist_plan({}))
+    assert len(matcher._domain_patterns) == len(base._domain_patterns) + homelab.pattern_count
+
+
+def test_resolve_allowlist_dir_preserves_empty_value() -> None:
+    # An explicit allowlist_dir="" is PRESERVED (drop-ins disabled) → None, NOT
+    # silently defaulted to allowlist.d/.
+    assert al.resolve_allowlist_dir({"allowlist": {"allowlist_dir": ""}}) is None
+
+
+def test_resolve_allowlist_dir_defaults_when_absent(tmp_path) -> None:
+    d = al.resolve_allowlist_dir({"sigwood": {"root": str(tmp_path)}, "allowlist": {}})
+    assert d == tmp_path / "allowlist.d"
+
+
+def test_master_off_resolver_returns_complete_plan() -> None:
+    plan = al.resolve_allowlist_plan({"allowlist": {"enabled": False}})
+    # Resolver does NOT empty out - the readout still works under master-off.
+    assert plan.master_enabled is False
+    assert {rl.name for rl in plan.lists if rl.origin == "shipped"} == {
+        spec.name for spec in al._SHIPPED_LISTS
+    }
+
+
+# ── matcher_from_plan ─────────────────────────────────────────────────────────
+
+
+def _stanza_config() -> dict:
+    return {
+        "allowlist": {
+            "entry": [
+                {"match": "dst_port", "value": 9999, "comment": "test"},
+            ],
+        }
+    }
+
+
+def test_master_off_matcher_is_empty_and_drops_stanza_rules() -> None:
+    plan = al.resolve_allowlist_plan({**_stanza_config(), "allowlist": {
+        "enabled": False, "entry": [{"match": "dst_port", "value": 9999}]}})
+    matcher = al.matcher_from_plan(plan)
+    assert matcher._domain_patterns == []
+    assert matcher._numeric_rules == []          # stanza-derived rule dropped too
+
+
+def test_force_off_matcher_is_empty_and_drops_stanza_rules() -> None:
+    plan = al.resolve_allowlist_plan({"allowlist": {
+        "entry": [{"match": "dst_port", "value": 9999}]}})
+    # force_off is a MATCHER param, never a resolver input - the plan still has entries.
+    assert len(plan.entries) == 1
+    matcher = al.matcher_from_plan(plan, force_off=True)
+    assert matcher._domain_patterns == []
+    assert matcher._numeric_rules == []
+
+
+def test_stanzas_convert_when_enabled() -> None:
+    plan = al.resolve_allowlist_plan({"allowlist": {
+        "entry": [{"match": "dst_port", "value": 9999}]}})
+    matcher = al.matcher_from_plan(plan)
+    assert any(r.port == 9999 for r in matcher._numeric_rules)
+
+
+# ── scope-blind count helpers ─────────────────────────────────────────────────
+
+
+def test_count_domain_parity_with_filter() -> None:
+    matcher = al.AllowlistMatcher(domain_patterns=[r"re:\.example\.com$"])
+    df = pd.DataFrame({"query": [
+        "host.example.com",        # matches via "x." + q (parent)
+        "example.com",             # matches direct
+        "other.example.net",       # no match
+    ]})
+    filtered = matcher.filter_df(df, "dns")
+    expected = len(df) - len(filtered)
+    assert matcher.count_domain_suppressed(df) == expected == 2
+
+
+def test_count_numeric_includes_stanza_and_ignores_scope() -> None:
+    # A rule scoped to ONE detector - scope-blind count must still count it.
+    scoped = al.NumericRule(port=9999, detectors=["duration"])
+    matcher = al.AllowlistMatcher(numeric_rules=[scoped])
+    df = pd.DataFrame({
+        "src": ["192.0.2.10", "192.0.2.11"],
+        "dst": ["198.51.100.20", "198.51.100.21"],
+        "port": [9999, 443],
+        "proto": ["tcp", "tcp"],
+    })
+    # filter_df under a DIFFERENT detector suppresses nothing (scope), but the
+    # scope-blind coverage count sees the rule.
+    assert len(matcher.filter_df(df, "beacon")) == 2
+    assert matcher.count_numeric_suppressed(df) == 1
+
+
+def test_count_helpers_short_circuit_when_empty() -> None:
+    empty = al.AllowlistMatcher()
+    df = pd.DataFrame({"query": ["x.example.com"]})
+    conn = pd.DataFrame({"src": ["192.0.2.10"], "dst": ["198.51.100.20"],
+                         "port": [443], "proto": ["tcp"]})
+    assert empty.count_domain_suppressed(df) == 0
+    assert empty.count_numeric_suppressed(conn) == 0

@@ -1,0 +1,60 @@
+# ============================================================================
+# sigwood - Your own DNS allowlist (local additions)
+# ============================================================================
+#
+# THIS FILE IS YOURS. It ships EMPTY on purpose. Put your own known-good DNS
+# names here when you want to suppress them WITHOUT editing the curated lists
+# that ship with sigwood (domains_common / domains_devices).
+#
+# WHERE IT LIVES (important - read this)
+#   This package copy is just a starter template. sigwood reads from your
+#   allowlist.d (under [sigwood].root - ~/.sigwood/allowlist.d/ by default).
+#   It auto-discovers drop-ins there by the DOT RULE - an active flat list is a
+#   DOT-FREE name typed by prefix:
+#         ~/.sigwood/allowlist.d/domains_user    (this template)
+#         ~/.sigwood/allowlist.d/domains_*        (ANY dot-free name - additive)
+#   Copy this file there and add your patterns, or use any domains_* name you
+#   like (domains_site, etc.). That location:
+#     * loads ON TOP of the curated shipped lists (purely additive), and
+#     * is OUTSIDE the installed package, so a `pip install -U` upgrade of
+#       sigwood never clobbers your edits.
+#   Every domains_* drop-in is ADDITIVE - even one named after a shipped list
+#   (domains_common, etc.). To replace a curated list instead of adding to it,
+#   turn it off: `sigwood allowlist disable common`.
+#   (TOML classification stanzas - *.toml in allowlist.d/ - and the numeric
+#   connection allowlist, connections*, live in that same folder.)
+#
+#   KEEPING A COPY FROM LOADING: any dot, or a trailing ~, means "not a list". A
+#   dotted copy like domains_user.bak will NOT load, but the readout nudges you to
+#   rename it. To park a retired list QUIETLY (no nudge), add a trailing ~
+#   (domains_user~) or drop the domains/connections prefix.
+#
+# WHAT BELONGS HERE
+#   Your site's own infrastructure and habitual destinations: internal services,
+#   self-hosted apps, vendor portals you trust, monitoring/telemetry you don't
+#   want to hunt within - anything that is noise FOR YOU but not for everyone.
+#
+# HOW SUPPRESSION WORKS (it has teeth)
+#   Allowlisting happens BEFORE detection. Any DNS name matched here is removed
+#   from the data the detectors ever see - it cannot produce a finding. Add a
+#   name only when you genuinely never want to hunt within it.
+#
+# FORMAT
+#   One pattern per line. '#' starts an inline or full-line comment. Blank
+#   lines ignored.
+#     * Plain text -> fnmatch glob, e.g. *.internal.example.com
+#     * "re:" prefix -> Python regex (re.search), e.g. re:\.example\.net$
+#   Anchored suffix regex ( re:\.example\.com$ ) matches the bare registered
+#   domain AND every subdomain.
+#
+# EXAMPLES (commented out - uncomment / replace with your own)
+#   re:\.corp\.example\.com$ # your internal domain
+#   *.grafana.example.net # a self-hosted dashboard
+#   re:\.my-monitoring-vendor\.com$ # telemetry you don't hunt within
+#
+# DISCLAIMER
+#   Patterns you add here suppress real data before analysis. Keep this list
+#   tight and review it periodically - an over-broad entry can hide signal.
+# ============================================================================
+
+# Add your patterns below this line.

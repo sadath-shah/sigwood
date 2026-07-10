@@ -1,0 +1,356 @@
+# sigwood FAQ
+
+Questions people might very well ask, and a deeper look at the ideas under the detectors.
+
+- [The basics](#the-basics)
+- [Running it](#running-it)
+- [How the detectors work](#how-the-detectors-work)
+- [The project](#the-project)
+
+---
+
+## The basics
+
+### What is sigwood, in one sentence?
+
+A local-first command-line workbench for hunting through the logs you already have - Zeek,
+Pi-hole/dnsmasq, syslog, CloudTrail - using transparent, named methods rather than a black
+box, enumerated badness, or a rulebook.
+
+### Is any of my data sent anywhere?
+
+No. sigwood runs on your box, over files on your disk, and talks to no one. There is no
+telemetry, no account, no cloud, no phone-home. The exporters move data *toward* you - they 
+pull logs *in* from Splunk or an S3 CloudTrail bucket to local files - and they never push 
+your data out. (For S3, you authenticate your own shell; sigwood never sees your AWS 
+credentials.)
+
+### Do I need Zeek?
+
+No. Pi-hole/dnsmasq, syslog, and CloudTrail each stand on their own. Zeek is simply where
+the tool has the most to work with - it carries connection-level context (RTT, TTL, byte
+counts, the full 5-tuple) that a DNS-only or host-log source can't. If you run on Pi-hole
+alone, sigwood tells you so and keeps working; you just get DNS analysis without the
+connection correlation. Point it at whatever you have. That said, Zeek is awesome and you 
+*should* get it: https://zeek.org/
+
+### How is this different from a SIEM? From an IDS?
+
+A SIEM is an always-on platform: it ingests continuously, stores everything, and alerts in
+real time. sigwood is the opposite shape on purpose - it runs in batches, over logs at
+rest, when *you* run it. There's nothing to deploy and nothing running in the background.
+No database, no daemon. This is the sigwood promise.
+
+It's also not an IDS. It doesn't sit inline, it doesn't match signatures, and it doesn't
+block anything. It *surfaces behavior* for a human to triage. Think of it as the tool you
+reach for to go hunting through a few days of logs, not the tool that watches the wire.
+
+### What's the difference between the hunt and `digest`?
+
+The **hunt** (the default - `sigwood <path>`, or `sigwood hunt`) runs the detectors and
+produces findings: things worth a second look, with a severity and the evidence behind
+them.
+
+`digest` (`sigwood digest <file>`) is orientation *before* the hunt. It reads a log and
+tells you what's in it - time span, top talkers, the shape of the mix, a histogram - and
+renders **zero verdicts**. No "suspicious," no "anomalous," just facts and superlatives.
+It's sonar, not an X-ray machine: it tells you what's there so you know where to point the
+detectors. (It also reads your data *before* the allowlist, because everything in the file
+is part of "what's in here.")
+
+### What log sources can it read?
+
+Zeek (`conn.log`, `dns.log`, `syslog.log`, in NDJSON or TSV, flat or date-partitioned
+directories), Pi-hole/dnsmasq, flat RFC 3164 syslog (both the Debian `*.log` convention and
+the extensionless RHEL/Fedora one), and CloudTrail JSON. Rotation and `.gz`/`.bz2`/`.xz`
+compression are handled for you. Forthcoming, possibly: more.
+
+---
+
+## Running it
+
+### Why did a detector get skipped?
+
+It needs a log it couldn't find. Each detector declares the log type it reads; if that file
+isn't in the configured directory, the detector is skipped with a one-line note on stderr
+(`conn.log not found in /var/log/zeek - skipping beacon detection`) and is left out of the
+report rather than pretended-run. Point it at the right directory, or `--detect` only the
+ones you have data for.
+
+### Why did it flag something I know is fine?
+
+Tell it once and it'll stop. sigwood filters **before** it analyzes: a flat-file allowlist
+suppresses known-good traffic before any detector sees the data. Add the host, CIDR,
+`:port/proto`, or domain pattern to your allowlist and that traffic never reaches the
+detector - so it can't be flagged, and your noise floor is yours to set. (There's a second,
+separate kind of allowlist - TOML stanzas - for *classifying* something as a known
+nameserver or backup client, when a detector needs to know what a thing is rather than
+whether to drop it.)
+
+### What does it suppress out of the box?
+
+A curated allowlist of known-harmless infrastructure - CDNs, cloud platforms, NTP, certificate
+validation (OCSP/CRL), public DNS, OS update channels - plus common consumer-device telemetry,
+all dropped before analysis so signal isn't buried in plumbing. These are the shipped `common`
+and `devices` lists, both on by default; a third `homelab` list (Splunk, Proxmox, UniFi, …)
+ships off, since suppressing a product you run is a real blind spot - turn it on with
+`sigwood allowlist enable homelab`. Nothing ad-, tracking-, or destination-specific is on the
+list - opinions differ and you may want to see those.
+
+### How do I see or change what's suppressed?
+
+`sigwood allowlist` prints what's loaded, which lists are on, and - on every detect run - how
+much got suppressed (the `allowlist:` line on the run-summary banner, e.g. `suppressed 1,284
+connections (12%) and 312 domains (59%)` - the parenthetical is the share of loaded rows each
+covered, so an unexpectedly high rate rings a bell). `sigwood allowlist show <name>` prints a
+list's patterns;
+`enable`/`disable <name>` toggle a shipped list; `copy <name>` forks one into your
+`~/.sigwood/allowlist.d/` to edit. Add your own names in any `domains_*` there (always
+additive - to replace a shipped list, disable it). Names carry no extension, so a dotted copy
+like `domains_user.bak` won't load (the readout nudges a rename); park a retired list with a
+trailing `~` or by dropping the prefix. Turn suppression off for one run with
+`--no-allowlist`, or permanently with `enabled = false`.
+
+### It surfaced a huge number of findings. Now what?
+
+Two things are usually going on. First, real noise you haven't allowlisted yet - start
+there. Second, on very high-volume host logs the syslog templating can over-trigger
+(when almost every line looks structurally unique, "rare" stops meaning much); the reading
+views (`text`/`html`/`pdf`) cap how many findings they show per detector and tell you they
+did, while `json` and `csv` keep everything. Tightening that high-volume behavior is an honest
+area of ongoing work - see [KNOWN-ISSUES.md](KNOWN-ISSUES.md). When in doubt, `digest` the file first to see
+whether the volume is the story.
+
+### How much data can it handle?
+
+Pointed at a directory, an unqualified run looks back over the last `default_window` (`7d`
+out of the box), so a live log directory isn't read end-to-end every time; widen with
+`--since` / `--days` or read it all with `--all`. For rotated flat logs it peeks each
+rotation file's first timestamp and stops early instead of decompressing the whole archive.
+And it prompts before chewing through more than `warn_above` records (default 10,000,000).
+Very large single pulls (tens of millions of CloudTrail events) are the current scaling
+edge.
+
+### What timezone are the times in?
+
+Your machine's local timezone, labeled `local` on every human-readable timestamp. Pass
+`--utc` (or set `use_utc = true` in config) to render everything in UTC with a `UTC` label
+instead - handy when you correlate across hosts or pivot into raw logs that carry UTC
+stamps. The setting is consistent end to end: an offset-less `--since`/`--until` date and
+the day boundaries of `--days` are read in the same timezone it displays (a date with an
+explicit offset is always honored as written), export's no-timeframe default window
+anchors on the same midnights, and the date in an auto-named report or digest filename
+follows it too. `json` output is the exception by design - it is always ISO-8601 UTC, so
+feeds into other tooling never shift with a display preference.
+
+### Can I use it as a Python library?
+
+Yes. Detectors are pure functions - they take loaded data and return findings, and never
+open files, read config, or render output (the one caveat: syslog shows a terminal-only
+progress bar while templating, silent when piped). You can import one and call it on a DataFrame in a
+notebook, which is exactly how the clustering work is prototyped.
+
+---
+
+## How the detectors work
+
+The thread running through all of them: **package sound methods so a self-hoster gets them
+for free, and make the method visible.** sigwood is not a rule engine wearing an ML
+costume. Each detector below names the actual idea it runs on, and every run tells you which
+one ran.
+
+### `beacon` - why an FFT?
+
+A beacon - malware checking in with its controller on a schedule - is *periodic*. Periodicity
+is nearly invisible in a list of timestamps but obvious in the **frequency domain**. An FFT
+turns "connections over time" into "how much energy lives at each frequency," and a regular
+beacon shows up as a sharp spike at its check-in frequency - even when jitter and missed
+check-ins smear it out in the raw timeline.
+
+A couple of choices matter. The timestamps are binned into **30-second buckets** and the FFT
+runs over the bucket counts, which is resilient to gaps - a host that sleeps for an hour
+breaks a raw inter-arrival series but barely dents a binned grid. The bin size also sets the
+detector's floor: the fastest representable cadence is twice the bin (60 seconds), anything
+faster shows up aliased as a slower period, and a beacon sitting exactly at that edge scores
+less reliably than one comfortably above it - the sweet spot is the minutes-to-hours range
+where real C2 check-ins live. The bin size is a calibrated constant; the scoring thresholds
+and period band are tuned against it. The score is a composite - 40% how dominant the spectral peak is, 40% how
+far that peak stands above the local noise floor, and 20% how regular the timing is (inverted
+jitter) - over flows of at least 20 connections.
+
+The detector measures *periodicity*, not maliciousness: a benign MRTG poller hitting SSH
+every 60 seconds lights up too. That's the right mental model - beaconing is a *shape*, and a
+finding is a flow with that shape, for you to explain or allowlist. The calibration reference
+is the demo corpus's seeded 180-second beacon (480 connections over 24 hours), which scores
+~0.62 with a dominant period of exactly 180.0s - one favorable *single-day* realization, not a
+typical number; a 60-second cadence sits at the edge of what 30-second bins can represent, so
+its score varies with how arrivals fall against bin boundaries.
+
+One caveat rides on all of this: the FFT needs enough span to resolve a jittered beacon.
+Resolving a jittered periodic check-in takes about a week of data - on a single day the same
+beacon clears the score threshold only occasionally, so a short window surfaces mainly the most
+machine-regular flows (often benign infrastructure, per the MRTG note above). Over a full week
+the FFT has the resolution to hold that beacon in a tight band a little below its lucky
+single-day peak - more span buys resolution, not a higher score. sigwood's default
+directory window is `7d` - exactly the reliability bar - and it discloses a short analysis
+span at run time, so widen with `--all` when your archive holds less than a week, and lean
+on the allowlist to set aside your own infrastructure.
+
+### `dns` - why HDBSCAN, and why is "noise" the interesting part?
+
+Normal DNS is repetitive and clusters tightly. Your machines hit the same CDNs, update
+servers, and mail hosts over and over, with similar round-trip times, TTLs, and query
+lengths. Low-volume domain-generation-algorithm (DGA) traffic and DNS tunneling don't fit
+those dense, boring clusters - they land in the noise HDBSCAN sets aside.
+
+HDBSCAN is a **density-based clusterer**: it groups points where they're densely packed and
+labels everything that belongs to no cluster as *noise*. The move that makes this work for
+hunting is to flip the usual intent - **the noise is the signal.** The clusters are the
+normal you don't care about; the points that fit nothing are the candidates.
+
+Why HDBSCAN and not something simpler? k-means makes you declare the number of clusters up
+front and assumes round, equal-sized blobs - DNS behavior is neither. Plain DBSCAN needs a
+single global density threshold, which fails when some normal patterns are dense and others
+sparse. HDBSCAN discovers the cluster count itself and tolerates varying density, which is
+what real traffic looks like.
+
+The features are per-query RTT, TTL, query length/depth, and TLD distribution. The noise
+domains are then ranked by a per-label **suspicion score** - sigwood's own weighted lexical
+heuristic, not Shannon entropy - computed on the highest-scoring label across all subdomains,
+then grouped by registrable domain (eTLD+1), so fourteen random subdomains of one parent read
+as one finding instead of fourteen. The score leans on digit density, so it has three related
+biases: benign digit-heavy labels such as hex IDs or versioned hostnames can score high;
+dictionary-word DGAs can score low; and genuinely random letter-only, no-digit labels can also
+score low. A digit-bearing random-looking label such as `x7f2k9q1` scores much higher than a
+letter-only label of similar length, so letter-only labels cannot reach HIGH severity or trip
+the dense-cluster tunnel scan, and they fall below the surface gate for the vast majority of
+realistic lengths. "High-entropy cluster" elsewhere is a colloquial name for that random-looking
+query shape (the cluster topology), not a claim that the score is Shannon entropy. A finding is
+a starting point, not a verdict; the intended pivots are `dns.log` → `conn.log` → whois →
+reputation → ASN.
+
+There is one place "noise is the signal" leaks: a *sustained, high-volume* tunnel is thousands
+of structurally-similar high-entropy queries, so past a size threshold it forms its own dense
+cluster and never reaches the noise set - the loudest exfil would be the one that hides.
+On Zeek DNS, sigwood closes this by also scanning the dense clusters: a cluster whose
+members are overwhelmingly high-entropy *and* concentrated under one registrable domain has
+that shape surfaced into the same suspicion-score ranking, and the run discloses that the
+scan fired. The gate is deliberately conservative, so a benign high-entropy cluster - a CDN
+or telemetry endpoint that happens to look the same - does not flood the report; allowlist
+those you recognize. **The dense-cluster scan runs on Zeek data only.** On Pi-hole/dnsmasq
+data the same blind spot is open: a high-volume tunnel can self-cluster and drop out of the
+report exactly as it grows louder - see [Known issues](KNOWN-ISSUES.md) for the honest
+detail.
+
+### `syslog` - why drain3, and what's a "rare template"?
+
+Host logs are mostly *templated*. `Accepted password for alice from 192.0.2.10 port 22` and
+`Accepted password for bob from 198.51.100.7 port 22` are the same sentence with different
+blanks filled in. drain3 learns those templates online - it maintains a parse tree and
+discovers, without a single regex from you, that both lines share the structure
+`Accepted password for <*> from <*> port <*>`.
+
+Once every line carries a template, you can ask a question keyword lists can't answer: **which
+lines are structurally rare?** Count how often each template appears across every host; the ones at the bottom
+of the distribution - the lines that look like almost nothing else in the log - get surfaced,
+and a template seen exactly once is the strongest signal. The point of rarity over a
+signature list is that the interesting event is usually the one you didn't think to name. A
+keyword search only finds what you already anticipated; rarity finds the line that doesn't fit
+its neighbors, whatever it happens to say.
+
+One wrinkle dominates real logs: when a host does a lot at once - a reboot, a package
+upgrade, a service restart - it spits out a burst of one-off lines (init chatter, services
+starting in a fresh order, kernel ring-buffer dumps) that would *all* read as rare. A single
+boot can be hundreds of "rare" lines. So rather than flood you, sigwood folds each per-host
+burst of rare lines into a single summary - `webhost · 187 rare lines · 12s · mostly kernel,
+systemd` - and tags it `rebooted` when a boot signal lands in the same window. Reboots
+themselves are detected on a separate full-frame pass, independent of rarity, so a machine
+that reboots over and over is flagged **every** time - not just on its first, still-unique
+boot. What's left once the storms are folded are the *isolated* rare lines - the one-off
+command, the singular error - which are exactly the needles worth your attention. A restart
+shouldn't bury the day's real signal.
+
+### `aws` - why a plain z-score instead of a fancy model?
+
+Because you have to be able to read *why* a principal was surfaced. The CloudTrail detector is
+**model-free on purpose**: a transparent z-score composite over intuitive danger signals -
+error rate, distinct source IPs, distinct action names, action entropy - each a number you
+can look at and explain. Reaching for an opaque model would betray the whole point; a score
+you can't account for is worse than no score in a tool a humble operator is meant to trust.
+
+It works in two tiers. **Burst sweeps** catch first-seen actions clumped together within a
+sliding time gap - the shape of someone enumerating an account - and they're glanceable on one
+line. **Ranked principals** get the composite. Only the *interactive* lane is scored: AWS's
+own service-lane background activity is supposed to be broad and repetitive, so scoring it just
+makes noise.
+
+It's **batch and stateless** - "first-seen" means first in the window you loaded, not first in 
+all of history, and the run says so rather than implying a baseline it doesn't keep. And it knows 
+its blind spot: a low-volume principal doing a few high-impact things isn't reliably caught by 
+volume-shaped signals, so principals below the event floor are set aside and their count is 
+disclosed up front, not hidden.
+
+### `scan` and `duration` - why are these labeled "just heuristics"?
+
+Because that's what they are. `scan` counts distinct destination ports and hosts against thresholds 
+to separate vertical (one host, many ports), horizontal (one port, many hosts), block (many of both), 
+and slow (the same spread out over time) scanning. `duration` groups connections by flow and flags 
+the long-lived tail - the keep-alive sessions and tunnels that stay open far longer than a normal 
+request.
+
+### Why isn't the top-ranked finding automatically the most severe?
+
+Because that would manufacture verdicts. The tempting design is "sort by score, crown the top
+one HIGH" - but run that against a perfectly clean log and it still crowns *something*. The
+most-normal thing in a normal dataset gets a severity it didn't earn.
+
+So severity is by **absolute gates, never rank position**. A finding is HIGH because it crossed
+a real bar, not because it won a relative race against its neighbors. When nothing crosses the
+bar, the tool says nothing stood out - which on a clean corpus is the most useful answer.
+This is most visible in the CloudTrail detector, where a quiet account genuinely returns "nothing
+stood out" instead of a top-of-the-list scare.
+
+### Where do these detection methods come from?
+
+The signal-processing and unsupervised-ML approaches - FFT for periodic-beacon detection and
+density-based clustering for DNS behavior - are established techniques in mathematics-based
+threat hunting, taught notably in David Hoelzer's SANS SEC595. sigwood applies them to local
+logs with open-source libraries (numpy for the FFT, hdbscan / fast_hdbscan for clustering,
+drain3 for syslog templating). The implementations are original, and no course material is
+reproduced.
+
+---
+
+## The project
+
+### What state is sigwood in?
+
+Early, pre-1.0. The six detectors above work and are covered by tests. Five more -
+`dnsblock`, `auth`, `ssl`, `protocol`, and `weird` - are planned but not built. Interfaces may still move before
+1.0. The current roadmap and the running list of known rough edges are public, in
+[ROADMAP.md](ROADMAP.md) and [KNOWN-ISSUES.md](KNOWN-ISSUES.md).
+
+### How would I add a new log format, or a new detector?
+
+sigwood is built "big-tent": a new log *format* joins an existing source family by adding a
+parser front-end and a single loader strategy entry - the detector logic doesn't change,
+because the loader normalizes every source to one canonical schema. A new *detector* is a
+self-contained module that declares the log it needs and a `run()` that takes loaded data and
+returns findings; discovery is automatic, with no registry to edit. The detector contract is
+spelled out in [CONTRIBUTING.md](../CONTRIBUTING.md) ("Adding a detector"); the canonical
+column schemas live in [SCHEMA.md](SCHEMA.md).
+
+A guiding rule: a detector's identity is the *question it asks*, not the source it reads.
+A second CloudTrail detector for privilege escalation would be its own detector named for that
+question.
+
+### Where do I report a bug or check what's planned?
+
+To report a bug or float an idea, [open an issue](https://github.com/helixmap/sigwood/issues)
+on GitHub - a clear description of what sigwood got wrong, ideally with a scrubbed log sample,
+helps more than you'd expect. Known rough edges live in [KNOWN-ISSUES.md](KNOWN-ISSUES.md), and the
+roadmap in [ROADMAP.md](ROADMAP.md).
+
+### What's the license?
+
+MIT. See [LICENSE](../LICENSE).

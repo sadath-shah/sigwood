@@ -1,0 +1,66 @@
+# ============================================================================
+# sigwood - Consumer device DNS allowlist
+# ============================================================================
+#
+# WHAT THIS COVERS
+#   Suppression patterns for the cloud "phone-home" endpoints of common consumer
+#   smart-home / IoT / media devices - Philips Hue, Amazon Echo & eero & Ring,
+#   Sonos (see also the common list), Samsung & LG smart TVs, Roku, TP-Link
+#   Kasa, Sengled, and similar. These devices chatter constantly to vendor
+#   clouds; that traffic is high-volume background noise on most home and
+#   small-office networks.
+#
+#   Separate from the common list because device OWNERSHIP varies - a name
+#   here is only noise if you actually run that device. Kept deliberately
+#   short and conservative; it is not an inventory of every IoT vendor.
+#
+# HOW SUPPRESSION WORKS (same teeth as the common list)
+#   Allowlisting happens BEFORE detection. A DNS name matched here is removed
+#   from the data the detectors ever see - it cannot generate a finding. This
+#   is a noise filter, not a statement that the device is trustworthy.
+#
+# FORMAT
+#   One pattern per line. '#' starts an inline or full-line comment. Blank
+#   lines ignored. "re:" prefix = Python regex (re.search); otherwise fnmatch
+#   glob. Anchored suffix regex matches the registered domain and subdomains.
+#
+# TURNING IT OFF / TUNING IT
+#   * Want fully RAW, unfiltered DNS? DELETE this file - a missing shipped file
+#     is silently skipped, nothing breaks.
+#   * Don't own one of these devices, or disagree with an entry? Comment it out
+#     or delete the line - it costs nothing to leave, but trim freely.
+#   * Adding your OWN device names without touching this curated file (so package
+#     upgrades don't clobber your edits)? Drop them in ANY domains_* under
+#         ~/.sigwood/allowlist.d/
+#     (e.g. the shipped domains_user template) - always additive. To replace
+#     this curated list entirely, `sigwood allowlist disable devices` then ship
+#     your own domains_* drop-in.
+#
+# DISCLAIMER
+#   Best-effort curation, provided as-is with no warranty. Vendor domains
+#   change; review periodically. Intentionally not exhaustive.
+# ============================================================================
+
+# --- Philips Hue ----------------------------------------------------------
+re:\.meethue\.com$|\.huedatastore\.com$                                     # philips_hue
+
+# --- Amazon Echo / Alexa (Alexa cloud is in the common list) -------------
+re:\.acsechocaptiveportal\.com$                                            # echo_captive
+
+# --- Amazon eero (mesh wifi) / Ring ---------------------------------------
+re:\.eero\.com$|\.ring\.com$                                               # amazon_devices
+
+# --- Samsung (TVs / appliances / SmartThings) -----------------------------
+re:\.samsungelectronics\.com$|\.samsungcloud\.com$|\.samsungosp\.com$|\.samsungqbe\.com$|\.smartthings\.com$  # samsung
+
+# --- LG (smart TVs) -------------------------------------------------------
+re:\.lgtvcommon\.com$|\.lgtvsdp\.com$|\.lgsmartplatform\.com$|\.lgappstv\.com$  # lg_tv
+
+# --- Roku -----------------------------------------------------------------
+re:\.roku\.com$|\.rokutime\.com$                                           # roku
+
+# --- TP-Link Kasa smart home ----------------------------------------------
+re:\.tplinkcloud\.com$|\.kasasmart\.com$                                   # tplink_kasa
+
+# --- Sengled smart bulbs --------------------------------------------------
+re:\.sengled\.com$                                                         # sengled

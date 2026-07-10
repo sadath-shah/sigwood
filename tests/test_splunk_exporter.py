@@ -1,0 +1,461 @@
+"""Tests for the Splunk exporter framework.
+
+No live Splunk connection - SDK is mocked where needed.
+All IP addresses use RFC 5737 documentation space (192.0.2.x).
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+import pytest
+
+from sigwood.cli import _resolve_timeframe
+from sigwood.common import config as cfg
+from sigwood.common.paths import effective_root
+from sigwood.exporters import (
+    _auto_filename,
+    _normalize_end_of_day_until,
+    _resolve_output_path,
+    _resolve_queries,
+)
+from sigwood.exporters.splunk import _build_hour_windows, _get_credentials, fetch, write
+
+
+# ── --days full pipeline: local midnight → 24 chunks ─────────────────────────
+
+
+def test_days_flag_local_midnight_gives_24_chunks() -> None:
+    # Simulate a user in UTC-5 running --days=1-1 at 15:00 local.
+    # Without the fix, UTC now → .replace(hour=0) gives UTC midnight, which converts
+    # to 19:00 local - the window spans 19:00→19:00 local (still 24 chunks but wrong
+    # day), and the first chunk starts at hour 19, not 0.
+    tz_minus5 = timezone(timedelta(hours=-5))
+    local_now = datetime(2026, 5, 31, 15, 0, 0, tzinfo=tz_minus5)
+
+    since, until = _resolve_timeframe({"days": "1-1"}, now=local_now)
+    until = _normalize_end_of_day_until(until)
+    windows = _build_hour_windows(since, until)
+
+    assert len(windows) == 24
+    # First chunk must start at local midnight (hour 0), not a UTC-shifted hour
+    assert windows[0][0].hour == 0
+
+
+# ── _normalize_end_of_day_until ───────────────────────────────────────────────
+
+
+def test_normalize_end_of_day_eod() -> None:
+    # 23:59:59 → next midnight
+    until = datetime(2026, 5, 30, 23, 59, 59)
+    result = _normalize_end_of_day_until(until)
+    assert result == datetime(2026, 5, 31, 0, 0, 0)
+
+
+def test_normalize_end_of_day_midnight() -> None:
+    # Already on a boundary - unchanged
+    until = datetime(2026, 5, 31, 0, 0, 0)
+    result = _normalize_end_of_day_until(until)
+    assert result == until
+
+
+def test_normalize_end_of_day_midday_59() -> None:
+    # 14:59:59 - hour != 23, must NOT trigger (critical: --hours edge case)
+    until = datetime(2026, 5, 30, 14, 59, 59)
+    result = _normalize_end_of_day_until(until)
+    assert result == until
+
+
+def test_end_of_day_until_gives_24_chunks() -> None:
+    since = datetime(2026, 5, 29, 0, 0, 0)
+    # Simulate what --days produces: 23:59:59
+    until_raw = datetime(2026, 5, 29, 23, 59, 59)
+    assert len(_build_hour_windows(since, until_raw)) == 23          # without fix
+    until_fixed = _normalize_end_of_day_until(until_raw)
+    assert len(_build_hour_windows(since, until_fixed)) == 24        # with fix
+
+
+# ── _build_hour_windows ───────────────────────────────────────────────────────
+
+
+def test_build_hour_windows_single_day():
+    since = datetime(2026, 5, 29, 0, 0, 0)
+    until = datetime(2026, 5, 30, 0, 0, 0)  # 24 hours later, on midnight boundary
+    windows = _build_hour_windows(since, until)
+    assert len(windows) == 24
+    assert windows[0] == (datetime(2026, 5, 29, 0, 0, 0), datetime(2026, 5, 29, 1, 0, 0))
+    assert windows[-1] == (datetime(2026, 5, 29, 23, 0, 0), datetime(2026, 5, 30, 0, 0, 0))
+
+
+def test_build_hour_windows_multi_day():
+    since = datetime(2026, 5, 23, 0, 0, 0)
+    until = datetime(2026, 5, 30, 0, 0, 0)  # 7 days later
+    windows = _build_hour_windows(since, until)
+    assert len(windows) == 168  # 7 * 24
+
+
+def test_build_hour_windows_partial():
+    # since is not on an hour boundary - floored to 09:00
+    # until is on an hour boundary - 14:00 unchanged
+    since = datetime(2026, 5, 30, 9, 30, 0)
+    until = datetime(2026, 5, 30, 14, 0, 0)
+    windows = _build_hour_windows(since, until)
+    # floor(09:30) = 09:00, floor(14:00) = 14:00 → 5 complete hours
+    assert len(windows) == 5
+    # All chunks are exactly one hour
+    for start, end in windows:
+        assert (end - start).total_seconds() == 3600
+    # All boundaries are on whole-hour marks (no partial-hour chunks)
+    for start, end in windows:
+        assert start.minute == 0 and start.second == 0 and start.microsecond == 0
+        assert end.minute == 0 and end.second == 0 and end.microsecond == 0
+    # First chunk starts at the floored hour
+    assert windows[0][0].hour == 9
+    assert windows[0][0].minute == 0
+    # Last chunk ends at 14:00
+    assert windows[-1][1].hour == 14
+    assert windows[-1][1].minute == 0
+
+
+# ── write ─────────────────────────────────────────────────────────────────────
+
+
+def test_write_output(tmp_path: Path) -> None:
+    rows = [
+        {
+            "_time": "2026-05-30T01:00:00.000+00:00",
+            "_raw": "<34>May 30 01:00:00 192.0.2.10 kernel: boot message",
+        },
+        {
+            "_time": "2026-05-29T23:00:00.000+00:00",
+            "_raw": "May 29 23:00:00 192.0.2.11 sshd: no PRI prefix here",
+        },
+        {
+            "_time": "2026-05-30T00:00:00.000+00:00",
+            "_raw": "<5>May 30 00:00:00 192.0.2.10 nginx: another line",
+        },
+    ]
+    outpath = tmp_path / "output.log"
+    n, _ = write(rows, outpath, verbose=False)
+
+    assert n == 3
+    lines = outpath.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 3
+
+    # Sorted by _time ascending
+    assert "May 29 23:00:00" in lines[0]
+    assert "May 30 00:00:00" in lines[1]
+    assert "May 30 01:00:00" in lines[2]
+
+    # PRI prefixes stripped where present
+    assert not lines[1].startswith("<")
+    assert not lines[2].startswith("<")
+
+    # Line without PRI written unchanged
+    assert "no PRI prefix here" in lines[0]
+
+
+def test_write_creates_parent_directories(tmp_path: Path) -> None:
+    rows = [{"_time": "2026-05-30T01:00:00.000+00:00", "_raw": "May 30 01:00:00 192.0.2.10 kernel: boot"}]
+    outpath = tmp_path / "a" / "b" / "out.log"
+    n, _ = write(rows, outpath, verbose=False)
+    assert n == 1
+    assert outpath.exists()
+
+
+# ── credentials ──────────────────────────────────────────────────────────────
+
+
+def test_get_credentials_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SIGWOOD_SPLUNK_USER", "testuser")
+    monkeypatch.setenv("SIGWOOD_SPLUNK_PASS", "testpass")
+    user, passwd = _get_credentials({})
+    assert user == "testuser"
+    assert passwd == "testpass"
+
+
+def test_get_credentials_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SIGWOOD_SPLUNK_USER", raising=False)
+    monkeypatch.delenv("SIGWOOD_SPLUNK_PASS", raising=False)
+    with pytest.raises(ValueError, match="Splunk credentials not found"):
+        _get_credentials({})
+
+
+# ── fetch SDK guard ───────────────────────────────────────────────────────────
+
+
+def test_fetch_no_sdk(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sigwood.exporters.splunk as splunk_module
+
+    monkeypatch.setattr(splunk_module, "splunk_client", None)
+    since = datetime(2026, 5, 29, 0, 0, 0)
+    until = datetime(2026, 5, 30, 0, 0, 0)
+    with pytest.raises(ValueError, match="splunk-sdk not installed"):
+        splunk_module.fetch(
+            {"spl": "search *"},
+            {"host": "192.0.2.20", "port": 8089, "username": "u", "password": "p"},
+            since,
+            until,
+            False,
+        )
+
+
+def test_fetch_passes_verify_true_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sigwood.exporters.splunk as splunk_module
+
+    captured: dict = {}
+
+    class FakeJobs:
+        @staticmethod
+        def oneshot(*_args, **_kwargs):
+            return object()
+
+    class FakeService:
+        jobs = FakeJobs()
+
+    class FakeClient:
+        @staticmethod
+        def connect(**kwargs):
+            captured.update(kwargs)
+            return FakeService()
+
+    class FakeResults:
+        @staticmethod
+        def JSONResultsReader(_job):
+            return []
+
+    monkeypatch.setattr(splunk_module, "splunk_client", FakeClient)
+    monkeypatch.setattr(splunk_module, "splunk_results", FakeResults)
+
+    splunk_module.fetch(
+        {"spl": "search *"},
+        {"host": "192.0.2.20", "port": 8089, "username": "u", "password": "p"},
+        datetime(2026, 5, 29, 0, 0, 0),
+        datetime(2026, 5, 29, 1, 0, 0),
+        False,
+    )
+
+    assert captured["verify"] is True
+
+
+def test_fetch_passes_verify_false_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sigwood.exporters.splunk as splunk_module
+
+    captured: dict = {}
+
+    class FakeJobs:
+        @staticmethod
+        def oneshot(*_args, **_kwargs):
+            return object()
+
+    class FakeService:
+        jobs = FakeJobs()
+
+    class FakeClient:
+        @staticmethod
+        def connect(**kwargs):
+            captured.update(kwargs)
+            return FakeService()
+
+    class FakeResults:
+        @staticmethod
+        def JSONResultsReader(_job):
+            return []
+
+    monkeypatch.setattr(splunk_module, "splunk_client", FakeClient)
+    monkeypatch.setattr(splunk_module, "splunk_results", FakeResults)
+
+    splunk_module.fetch(
+        {"spl": "search *"},
+        {
+            "host": "192.0.2.20",
+            "port": 8089,
+            "username": "u",
+            "password": "p",
+            "verify_tls": False,
+        },
+        datetime(2026, 5, 29, 0, 0, 0),
+        datetime(2026, 5, 29, 1, 0, 0),
+        False,
+    )
+
+    assert captured["verify"] is False
+
+
+def test_fetch_rejects_non_bool_verify_tls_before_connect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sigwood.exporters.splunk as splunk_module
+
+    class FakeClient:
+        @staticmethod
+        def connect(**_kwargs):
+            raise AssertionError("connect must not be called")
+
+    monkeypatch.setattr(splunk_module, "splunk_client", FakeClient)
+
+    with pytest.raises(ValueError, match=r"\[export\.splunk\]\.verify_tls"):
+        splunk_module.fetch(
+            {"spl": "search *"},
+            {
+                "host": "192.0.2.20",
+                "port": 8089,
+                "username": "u",
+                "password": "p",
+                "verify_tls": "false",
+            },
+            datetime(2026, 5, 29, 0, 0, 0),
+            datetime(2026, 5, 29, 1, 0, 0),
+            False,
+        )
+
+
+def test_fetch_formats_splunk_auth_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sigwood.exporters.splunk as splunk_module
+
+    class AuthenticationError(Exception):
+        pass
+
+    class FakeClient:
+        @staticmethod
+        def connect(**_kwargs):
+            raise AuthenticationError("Login failed")
+
+    monkeypatch.setattr(splunk_module, "splunk_client", FakeClient)
+    since = datetime(2026, 5, 29, 0, 0, 0)
+    until = datetime(2026, 5, 29, 1, 0, 0)
+
+    with pytest.raises(ValueError) as exc_info:
+        splunk_module.fetch(
+            {"spl": "search *"},
+            {"host": "192.0.2.20", "port": 8089, "username": "u", "password": "p"},
+            since,
+            until,
+            False,
+        )
+
+    msg = str(exc_info.value)
+    assert "Splunk login failed" in msg
+    assert "SIGWOOD_SPLUNK_USER" in msg
+
+
+def test_fetch_formats_splunk_connection_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    import sigwood.exporters.splunk as splunk_module
+
+    class FakeClient:
+        @staticmethod
+        def connect(**_kwargs):
+            raise OSError("connection refused")
+
+    monkeypatch.setattr(splunk_module, "splunk_client", FakeClient)
+    since = datetime(2026, 5, 29, 0, 0, 0)
+    until = datetime(2026, 5, 29, 1, 0, 0)
+
+    with pytest.raises(ValueError) as exc_info:
+        splunk_module.fetch(
+            {"spl": "search *"},
+            {"host": "192.0.2.20", "port": 8089, "username": "u", "password": "p"},
+            since,
+            until,
+            False,
+        )
+
+    msg = str(exc_info.value)
+    assert "could not connect to Splunk management API" in msg
+    assert "192.0.2.20:8089" in msg
+
+
+def test_default_splunk_export_dir_is_global_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """No shipped Splunk query - user must define one. The cascade still
+    resolves an empty / synthetic query against the shipped global export_dir
+    (tier 4: ~/.sigwood/exports), which auto-segments per source."""
+    monkeypatch.setattr(cfg, "SEARCH_PATHS", [tmp_path / "missing.toml"])
+    config = cfg.load(config_file=None)
+    user_query = {"output_basename": "syslog"}   # user-defined query - minimum shape
+    since = datetime(2026, 5, 30, 0, 0, 0)
+    until = datetime(2026, 5, 31, 0, 0, 0)
+
+    result = _resolve_output_path(
+        user_query, None, since, until, "default",
+        backend_config=config["export"]["splunk"],
+        sigwood_config=config["sigwood"],
+        root=effective_root(config),
+    )
+
+    assert result.parent == Path("~/.sigwood/exports/syslog").expanduser()
+
+
+# ── query resolution ──────────────────────────────────────────────────────────
+
+
+def _make_config(queries: dict) -> dict:
+    return {"export": {"splunk": {"host": "192.0.2.20", "port": 8089, "query": queries}}}
+
+
+def test_query_resolution_default() -> None:
+    config = _make_config({"default": {"spl": "search *"}})
+    result = _resolve_queries(config, "splunk", [])
+    assert result == [("default", {"spl": "search *"})]
+
+
+def test_query_resolution_single() -> None:
+    config = _make_config({"myquery": {"spl": "search index=main"}})
+    result = _resolve_queries(config, "splunk", [])
+    assert result == [("myquery", {"spl": "search index=main"})]
+
+
+def test_query_resolution_ambiguous() -> None:
+    config = _make_config({"alpha": {"spl": "search a"}, "beta": {"spl": "search b"}})
+    with pytest.raises(ValueError) as exc_info:
+        _resolve_queries(config, "splunk", [])
+    msg = str(exc_info.value)
+    assert "alpha" in msg
+    assert "beta" in msg
+
+
+def test_query_resolution_explicit() -> None:
+    config = _make_config({"alpha": {"spl": "search a"}, "beta": {"spl": "search b"}})
+    result = _resolve_queries(config, "splunk", ["beta"])
+    assert result == [("beta", {"spl": "search b"})]
+
+
+def test_query_resolution_missing() -> None:
+    config = _make_config({"alpha": {"spl": "search a"}})
+    with pytest.raises(ValueError, match="noexist"):
+        _resolve_queries(config, "splunk", ["noexist"])
+
+
+# ── output path resolution ────────────────────────────────────────────────────
+
+
+def test_output_autoname_single_day(tmp_path: Path) -> None:
+    """cli_out is now a string; tmp_path exists -> Step 2 DIRECTORY verdict."""
+    since = datetime(2026, 5, 30, 0, 0, 0)
+    until = datetime(2026, 5, 31, 0, 0, 0)  # exactly 1 day
+    query_cfg = {"output_basename": "syslog"}
+    result = _resolve_output_path(query_cfg, str(tmp_path), since, until, "default")
+    assert result.name == "syslog_20260530_1d.log"
+    assert result.parent == tmp_path
+
+
+def test_output_autoname_multi_day(tmp_path: Path) -> None:
+    since = datetime(2026, 5, 24, 0, 0, 0)
+    until = datetime(2026, 5, 31, 0, 0, 0)  # exactly 7 days
+    query_cfg = {"output_basename": "syslog"}
+    result = _resolve_output_path(query_cfg, str(tmp_path), since, until, "default")
+    assert result.name == "syslog_20260524_7d.log"
+    assert result.parent == tmp_path
+
+
+def test_output_explicit_path(tmp_path: Path) -> None:
+    """A non-existent path with no trailing slash -> Step 3 FILE verdict."""
+    since = datetime(2026, 5, 30, 0, 0, 0)
+    until = datetime(2026, 5, 31, 0, 0, 0)
+    explicit = tmp_path / "myfile.log"
+    assert not explicit.exists()
+    result = _resolve_output_path({}, str(explicit), since, until, "default")
+    assert result == explicit

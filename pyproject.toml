@@ -1,0 +1,100 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sigwood"
+dynamic = ["version"]
+description = "Hunt for C2 beacons, DNS anomalies, and cloud-account weirdness in your own logs - no SIEM, no agents."
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "David Augros", email = "code@augros.org"}
+]
+keywords = [
+    "security", "threat-hunting", "log-analysis", "network-security",
+    "zeek", "syslog", "pihole", "dnsmasq", "cloudtrail",
+    "beacon-detection", "dns", "anomaly-detection", "blue-team",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: System Administrators",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Security",
+    "Topic :: System :: Networking :: Monitoring",
+    "Topic :: System :: Systems Administration",
+]
+requires-python = ">=3.11"
+dependencies = [
+    # Capped below 3.0: pandas 3.0 reroutes to_datetime(unit=...) through
+    # Series.map, which segfaults under the py3.12 + pandas 3.0.4 + numpy 2.4.6
+    # wheel combo (detectors/aws.py). The tool targets pandas 2.x.
+    "pandas>=2.0,<3",
+    "numpy>=1.26",
+    "scikit-learn>=1.3",
+    # Clustering backend markers are exclusive and total: 64-bit platforms
+    # get fast-hdbscan pure wheels; everything else keeps stock hdbscan.
+    "fast-hdbscan>=0.2 ; platform_machine in 'aarch64 arm64 x86_64 AMD64'",
+    "hdbscan>=0.8 ; platform_machine not in 'aarch64 arm64 x86_64 AMD64'",
+    "drain3>=0.9",
+    "tqdm>=4.0",
+    "tldextract>=3.0",
+]
+
+[project.optional-dependencies]
+# Stable public extra: redundant on 64-bit base installs, useful to force the
+# fast backend where the base marker selects stock hdbscan.
+fast = ["fast-hdbscan>=0.2"]
+# Install stock hdbscan for calibration, testing, and dev/CI fallback coverage.
+hdbscan = ["hdbscan>=0.8"]
+splunk = ["splunk-sdk"]
+cloudtrail = ["boto3", "botocore[crt]"]
+# STANDALONE, purely opt-in: WeasyPrint pulls a Python stack (pydyf, CFFI, the
+# html5 parser, tinycss2, cssselect2, Pyphen, Pillow, fontTools) AND needs a
+# native text stack (Pango / HarfBuzz / fontconfig / cairo) that pip cannot
+# supply. Deliberately NOT folded into [all] or [dev] - bundling it would make
+# those installs / CI fragile on machines without the native libraries.
+pdf = ["weasyprint>=60"]
+all = ["sigwood[fast]", "sigwood[splunk]", "sigwood[cloudtrail]"]
+# Development / test toolchain. Pulls [all] so the FULL suite runs without
+# dependency-gated skips (the botocore-backed CloudTrail exporter tests), plus
+# stock hdbscan for fallback-path coverage.
+# Install with: pip install -e ".[dev]"
+dev = ["sigwood[all]", "sigwood[hdbscan]", "pytest>=7.0"]
+
+[project.urls]
+Homepage = "https://github.com/helixmap/sigwood"
+Repository = "https://github.com/helixmap/sigwood"
+"Bug Tracker" = "https://github.com/helixmap/sigwood/issues"
+
+[project.scripts]
+sigwood = "sigwood.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sigwood*"]
+
+[tool.setuptools.package-data]
+sigwood = ["data/**/*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "sigwood.__version__"}
+
+[tool.pytest.ini_options]
+# Dependency deprecations are errors, not noise: a FutureWarning/DeprecationWarning
+# fails CI instead of silently leaking into output. To consciously accept a
+# third-party warning we cannot fix, add one commented `ignore::…` entry below -
+# never a blanket ignore. Currently empty: the suite is clean under the pinned deps.
+filterwarnings = [
+    "error::FutureWarning",
+    "error::DeprecationWarning",
+]

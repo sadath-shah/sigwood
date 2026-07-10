@@ -1,0 +1,50 @@
+# sigwood - Flat Numeric Connection Allowlist
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Format: one rule per line, whitespace-separated tokens. Order doesn't matter.
+# # starts a comment (inline or full-line). Blank lines are ignored.
+#
+# Token types:
+#   IP address    exact host:          192.0.2.10
+#   CIDR range    subnet:              192.0.2.0/24
+#   Wildcard      any host:            *
+#   Port/proto    leading colon:       :443   :123/udp   :*/tcp
+#
+# A rule may contain zero, one, or two IP/CIDR/wildcard fields plus an
+# optional port/proto token. Rules with two IP fields match in either
+# direction - src→dst and dst→src are both covered by a single rule.
+#
+# Missing fields match anything: omission is permission.
+#
+# !! BARE IP WARNING !!
+# ─────────────────────────────────────────────────────────────────────────────
+# A rule containing only an IP address with no port token suppresses ALL
+# traffic involving that host across every detector. This is intentional and
+# powerful - one bare IP rule silently drops every flow involving that host
+# from all findings. Use scoped rules (with a port/proto token) unless you
+# explicitly mean to exclude a host entirely.
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Syntax examples (documentation only - not active rules):
+#
+#   Two specific hosts, port 22, TCP only:
+#     192.0.2.10  198.51.100.1  :22/tcp
+#
+#   Any flow involving 192.0.2.10 on port 22, any protocol:
+#     192.0.2.10  :22
+#
+#   Entire subnet on port 443, any protocol:
+#     192.0.2.0/24  :443
+#
+#   Any host, UDP port 123 (NTP):
+#     *  :123/udp
+#
+#   Port only - suppress this port for every host:
+#     :6556
+#
+#   Bare IP - suppresses ALL traffic involving this host (see warning above):
+#     192.0.2.33
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# Add your rules below this line.
+# ─────────────────────────────────────────────────────────────────────────────

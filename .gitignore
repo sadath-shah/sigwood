@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+.pytest_cache/
+*.pyc
+*.egg-info/
+.venv/
+dist/
+build/
+
+# Runtime clutter
+exports/
+scratch/
+*.log
+*.parquet
+*.zip
+*.gz
+
+# MacBS
+._*
+.DS_Store
+
+# Private docs
+privdocs/

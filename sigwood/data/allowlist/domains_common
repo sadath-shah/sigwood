@@ -1,0 +1,152 @@
+# ============================================================================
+# sigwood - Common DNS allowlist
+# ============================================================================
+#
+# WHAT THIS COVERS
+#   Curated suppression patterns for DNS names that are known-harmless internet
+#   *infrastructure* - the high-volume "phone-home" plumbing that shows up in
+#   virtually every network and drowns out real signal: big-three cloud + CDN
+#   edges (AWS, Azure/Microsoft 365, Google, Apple, Cloudflare, Akamai, Fastly),
+#   reverse-DNS and other .arpa infrastructure, mDNS/link-local, NTP, public
+#   nameserver infrastructure, certificate-validation (OCSP/CRL) endpoints, OS /
+#   Linux-distro update channels, and a handful of ubiquitous SaaS endpoints.
+#
+#   These were curated conservatively against a multi-million-query real-world
+#   survey: included only where the name is unambiguous infrastructure that no
+#   reasonable hunter would treat as a destination. Ad / analytics / tracking
+#   networks, social platforms, user-content hosts, and AI tooling are
+#   DELIBERATELY EXCLUDED - opinions differ, and you may well want to see them.
+#
+# HOW SUPPRESSION WORKS (read this - it has teeth)
+#   Allowlisting happens BEFORE detection. A DNS name matched here is removed
+#   from the data the detectors ever see - it cannot generate a finding. This is
+#   a noise filter, not a safelist of "trusted" parties. Suppress only what you
+#   genuinely never want to hunt within.
+#
+# FORMAT
+#   One pattern per line. '#' starts an inline or full-line comment. Blank
+#   lines ignored. Patterns prefixed "re:" are Python regex (re.search);
+#   patterns without the prefix are fnmatch globs. Anchored suffix regex
+#   (e.g. re:\.example\.com$ ) matches the bare registered domain and every
+#   subdomain, including CDN CNAME chains.
+#
+# TURNING IT OFF / TUNING IT
+#   * Want fully RAW, unfiltered DNS? Just DELETE this file (and the sibling
+#     domains_devices / domains_homelab). sigwood loads whatever
+#     shipped files remain - a missing file is silently skipped, nothing breaks.
+#   * Disagree with one entry? Comment it out or delete the line.
+#   * Want to ADD your own names without touching this curated file (so package
+#     upgrades don't clobber your edits)? Drop them in ANY domains_* under
+#         ~/.sigwood/allowlist.d/
+#     (e.g. the shipped domains_user template, or your own domains_site).
+#     They load on TOP of this file and survive upgrades - always additive.
+#   * Want to REPLACE this curated list entirely with your own? Turn it off with
+#         sigwood allowlist disable common
+#     then ship your own domains_* drop-in.
+#
+# DISCLAIMER
+#   Best-effort curation, provided as-is with no warranty. Domain ownership and
+#   infrastructure change over time; review periodically. This list is
+#   intentionally NOT exhaustive - it targets only the most common high-volume
+#   noise, not every harmless name in existence.
+# ============================================================================
+
+# --- Reverse-DNS and other .arpa infrastructure --------------------------
+# .arpa is reserved internet infrastructure (RFC 3172) - reverse DNS
+# (in-addr.arpa / ip6.arpa), ipv4only.arpa, resolver.arpa, home.arpa, the
+# *-servers.arpa zones, etc. No destinations live under it.
+re:\.arpa$                                                                  # arpa_infra
+
+# --- mDNS / link-local ----------------------------------------------------
+re:\.local$                                                                 # mdns_local
+re:^_                                                                       # mdns_service
+
+# --- UUID labels (e.g. device beacons) ------------------------------------
+re:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}             # uuid
+
+# --- NTP ------------------------------------------------------------------
+re:pool\.ntp\.org$|\.ntp\.org$                                             # ntp
+re:\.ntpns\.org$                                                            # ntp_pool_ns
+
+# --- Akamai CDN -----------------------------------------------------------
+re:\.akamai\.net$|\.akamaiedge\.net$|\.akamai\.com$|\.akamaihd\.net$|\.akadns\.net$|\.akamaized\.net$|\.akamaitechnologies\.com$  # akamai
+re:\.akam\.net$|\.edgekey\.net$                                           # akamai_delegation
+re:\.edgesuite\.net$|\.akahost\.net$|\.akamaitech\.net$|\.akagtm\.org$|\.dns-tm\.com$|\.edgedns-tm\.info$  # akamai_extra
+
+# --- Apple / iCloud -------------------------------------------------------
+re:\.apple\.com$|\.icloud\.com$|\.aaplimg\.com$|\.apple-dns\.net$         # apple_cdn
+re:\.cdn-apple\.com$|\.mzstatic\.com$|\.icloud-content\.com$|\.apple-cloudkit\.com$|\.me\.com$  # apple_infra
+
+# --- Amazon Web Services --------------------------------------------------
+re:\.amazonaws\.com$|\.awsglobalaccelerator\.com$|\.cloudfront\.net$      # aws
+
+# --- Google ---------------------------------------------------------------
+re:\.googlevideo\.com$|\.googleapis\.com$|\.gstatic\.com$|\.googleusercontent\.com$|\.googledomains\.com$|\.google\.com$  # google
+re:\.gvt1\.com$|\.gvt2\.com$|\.ytimg\.com$|\.ggpht\.com$|\.1e100\.net$    # google_infra
+
+# --- Microsoft / Azure / Microsoft 365 ------------------------------------
+re:\.azurefd\.net$|\.azureedge\.net$|\.cloudapp\.azure\.com$|\.azurewebsites\.net$|\.trafficmanager\.net$|\.windows\.net$  # azure
+re:\.azure-dns\.com$                                                       # azure_dns
+re:\.microsoft\.com$|\.office\.com$|\.live\.com$|\.skype\.com$|\.msidentity\.com$  # microsoft
+re:\.windowsupdate\.com$                                                   # windows_update
+re:\.cloud\.microsoft$|\.microsoftonline\.com$|\.office365\.com$|\.tm-azurefd\.net$|\.azure\.com$  # ms365_azure
+re:\.vscode-cdn\.net$                                                       # vscode_cdn
+re:\.msftconnecttest\.com$|\.msftncsi\.com$                               # win_connectivity
+re:\.t-msedge\.net$|\.fb-t-msedge\.net$                                   # msedge
+re:\.(ax|bx|ln)-\d+\.(ax|bx|ln)(-dc)?-msedge\.net$                       # msedge_cdn
+
+# --- Cloudflare CDN / DNS -------------------------------------------------
+re:\.cloudflare\.net$|\.cloudflare\.com$|\.cloudflare-dns\.com$|\.cloudflareinsights\.com$  # cloudflare
+
+# --- Fastly CDN -----------------------------------------------------------
+re:\.fastly\.net$|\.fastly-edge\.com$                                      # fastly
+
+# --- Mozilla / Firefox ----------------------------------------------------
+re:\.mozilla\.net$|\.mozilla\.org$|\.mozgcp\.net$                         # mozilla
+re:\.mozilla\.com$|\.firefox\.com$                                          # mozilla_firefox
+
+# --- Amazon / Alexa -------------------------------------------------------
+re:\.amazonvideo\.com$|\.amazon\.com$|\.amazonalexa\.com$|\.a2z\.com$     # amazon
+
+# --- Oracle Cloud ---------------------------------------------------------
+re:\.oraclecloud\.com$|\.oracle\.com$                                      # oracle
+re:\.dns\.oraclecloud\.net$                                                 # oracle_dns
+
+# --- Sonos ----------------------------------------------------------------
+re:conn-i-[0-9a-f]+\..*\.sonos\.com$                                       # sonos_ws
+re:\.sonos\.com$                                                            # sonos
+
+# --- Dropbox --------------------------------------------------------------
+re:\.dropbox\.com$|\.dropbox-dns\.com$                                     # dropbox
+
+# --- Zoom -----------------------------------------------------------------
+re:\.zoom\.us$                                                              # zoom
+
+# --- Atlassian / Jira / Confluence ----------------------------------------
+re:\.atlassian\.com$|\.atlassian-dev\.net$|\.atl-paas\.net$               # atlassian
+
+# --- Backblaze B2 ---------------------------------------------------------
+re:pod-\d+-\d+-\d+\.backblaze\.com$|pod-\d{3}-\d{4}-\d{2}\.backblaze\.com$|ca\d+\.backblaze\.com$  # backblaze
+
+# --- Public nameserver infrastructure -------------------------------------
+re:(^|\.)awsdns-\d+\.\w+(\.\w+)?$                                         # awsdns
+re:ns-\d+\.awsdns                                                           # aws_ns
+re:(^|\.)awswaf\.com$                                                       # awswaf
+re:ns\d+\.ovh\.net$|dns\d+\.ovh\.net$                                     # ovh_ns
+re:\.ultradns\.(net|com|org|info|co\.uk)$                                  # ultradns
+re:\.nsone\.net$                                                            # nsone
+re:ns\d+-\d+\.azure-dns\.(com|net|org|info)$                              # azure_ns
+re:^ns\d*[-\.]|\.awsdns-|\.ultradns\.|\.cloudns\.|\.constellix\.|\.digicertdns\.|\.domaincontrol\.  # nameservers
+re:\.root-servers\.net$|\.gtld-servers\.net$|\.nstld\.com$|\.iana-servers\.net$|\.dnsmadeeasy\.com$|\.charlestonroadregistry\.com$  # dns_root
+
+# --- Certificate authorities (OCSP / CRL validation infra) ----------------
+re:\.digicert\.com$|\.digicertdns\.net$|\.lencr\.org$|\.letsencrypt\.org$|\.pki\.goog$|\.sectigo\.com$|\.usertrust\.com$|\.comodoca\.com$|\.globalsign\.com$|\.globalsign\.net$|\.amazontrust\.com$|\.ssl\.com$|\.entrust\.net$|\.identrust\.com$  # cert_ca
+
+# --- Linux distro / OS update infrastructure ------------------------------
+re:\.fedoraproject\.org$|\.ubuntu\.com$|\.debian\.org$|\.archlinux\.org$|\.almalinux\.org$|\.rockylinux\.org$|\.opensuse\.org$|\.centos\.org$|\.raspberrypi\.(org|com)$|\.canonical\.com$|\.launchpadcontent\.net$|\.pop-os\.org$|\.snapcraft\.io$  # os_distro
+
+# --- AWS networking diagnostic infrastructure -----------------------------
+re:\.prod\.diagnostic\.networking\.aws\.dev$                               # diagnostic_dns
+
+# --- Miscellaneous ubiquitous SaaS / endpoints ----------------------------
+re:\.hcaptcha\.com$                                                         # hcaptcha

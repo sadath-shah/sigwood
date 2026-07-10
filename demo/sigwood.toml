@@ -1,0 +1,7 @@
+[sigwood]
+root = ""                     # empty root -> source paths resolve CWD-relative (repo root), not under ~/.sigwood
+zeek_dir = "demo/corpus/zeek"
+pihole_dir = "demo/corpus/pihole"
+syslog_dir = "demo/corpus/syslog"
+default_window = "all"        # load the whole fixed-anchor corpus without --all
+detect = "dns, beacon, syslog"

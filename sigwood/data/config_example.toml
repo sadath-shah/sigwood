@@ -1,0 +1,185 @@
+# sigwood configuration. Every key is optional - omit any to take the default.
+# Generate this for your environment with `sigwood init`.
+
+[sigwood]
+
+# Base dir for any RELATIVE path below. "" resolves relative paths from the
+# current dir. Absolute (/…) and ~-anchored paths ignore it. Set it once and
+# write export_dir = "exports". Env override: SIGWOOD_ROOT.
+root = "~/.sigwood"
+
+# Detectors to run: "all" | "dns, beacon" | "all, !syslog". --detect overrides.
+detect = "all"
+
+# ── Log sources (read) ──────────────────────────────────────────────
+# Directories holding your logs. Conventional locations shown; uncomment the
+# others if you have them.
+zeek_dir   = "/var/log/zeek"
+syslog_dir = "/var/log"
+# pihole_dir     = "/var/log/pihole"
+# cloudtrail_dir = "/var/log/cloudtrail"
+
+# ── Network ─────────────────────────────────────────────────────────
+# Networks treated as internal for traffic-direction. Topology, not tuning.
+home_net = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
+
+# ── Output (write) ──────────────────────────────────────────────────
+# Findings print to your terminal. Set report_dir (or pass --out) to write
+# files instead - reports land in their own dir, never mixed with pulled logs.
+# export_dir is a directory BASE: each export auto-segments per source into
+# <base>/<source>/ (e.g. exports/syslog/, exports/cloudtrail/) so pulled logs
+# of different families never share a directory. Override per backend or per
+# query (below) to pin a literal dir; --out is always literal.
+# report_dir    = "reports/"
+export_dir    = "exports/"
+output_format = "text"
+
+# quiet: suppress runner-owned progress/status stderr (loader bars, liveness,
+#   the default-window advisory). CLI -q/--quiet wins per run. Never suppresses
+#   warnings, prompts, errors, or the stdout report.
+quiet         = false
+
+# use_utc: render report times in UTC and read naive --since/--until dates and
+#   --days boundaries as UTC. CLI --utc wins per run. json output is always UTC.
+use_utc       = false
+
+# ── Analysis window ─────────────────────────────────────────────────
+# default_window: lookback for a directory with no --since/--days ("7d","24h";
+#   "" or "all" = whole archive; --all overrides one run).
+# warn_above: prompt before analyzing more than this many records.
+default_window = "7d"
+warn_above     = 10_000_000
+
+# Per-detector cap on rendered findings in the READING views (text/html/pdf;
+# json/csv ignore it - the machine feed and the worklist never truncate). Cap
+# operates post severity-sort; a disclosure line is shown when it trips. 0 = unlimited.
+max_findings_per_detector = 100
+
+[allowlist]
+
+enabled = true   # master switch; false disables ALL suppression every run
+                 # (or pass --no-allowlist for a single run)
+
+# allowlist.d drop-ins are typed by the dot rule (relative to [sigwood].root →
+# ~/.sigwood/allowlist.d/ by default). An ACTIVE flat list is DOT-FREE:
+#   domains*      → domain suppression globs (drop in domains_*; every drop-in is
+#                   additive - to replace a shipped list, disable it:
+#                   `sigwood allowlist disable common`)
+#   connections*  → numeric flow suppressions (start blank, add after review)
+#   *.toml        → classification stanzas (all loaded)
+# Any OTHER dot, or a trailing ~, means "not a list": a dotted prefixed copy like
+# domains_user.bak will not load (the readout nudges you to rename it); to park a
+# retired list QUIETLY, add a trailing ~ (domains_user~) or drop the prefix.
+# Shipped curated domain lists load automatically. domain_patterns / connection_rules
+# below are an escape hatch for files OUTSIDE allowlist.d (they may carry any extension).
+domain_patterns  = []
+connection_rules = []
+allowlist_dir    = "allowlist.d/"
+
+# Shipped curated lists - toggle by name. Defaults shown; to override, uncomment
+# the HEADER and the line you want (engine-room style - the whole block is inert
+# until you do). `sigwood allowlist` prints the live state.
+# [allowlist.lists]
+# common  = true    # broad internet infrastructure (CAs, root NS, major clouds/CDNs)
+# devices = true    # consumer IoT / smart-home phone-home
+# homelab = false   # self-hosted tooling - opt-in (a genuine blind spot if wrong)
+
+# ════════════════════════════════════════════════════════════════════
+# Export backends (configure only what you use)
+# ════════════════════════════════════════════════════════════════════
+# Splunk - a non-empty host activates it. Prefer env SIGWOOD_SPLUNK_USER /
+# _PASS over plaintext credentials. A query named "default" runs with a bare
+# `sigwood export`; run others by name (`sigwood export auth`).
+#
+# [export.splunk]
+# host = "192.0.2.20"
+# port = 8089
+# TLS certificate verification is on by default; set false only for a
+# self-signed certificate on a trusted network.
+# verify_tls = true
+# Per-backend export_dir: a LITERAL final dir for every query on this backend
+# (no per-source auto-segment). Uncomment to override the global base.
+# export_dir = "/srv/exports/splunk/"
+#
+# [export.splunk.query.default]
+# spl = "search index=main sourcetype=syslog | table _time, host, _raw"
+# output_basename = "syslog"
+# Per-query export_dir: the finest grain, a LITERAL final dir for this query
+# only (no auto-segment). Wins over the per-backend and global tiers.
+# export_dir = "/srv/exports/syslog/"
+#
+# [export.splunk.query.auth]
+# spl = "search index=main sourcetype=linux_secure | table _time, host, _raw"
+# output_basename = "auth"
+#
+# CloudTrail - a non-empty path activates it. AWS auth is NOT here; authenticate
+# your shell and boto3 resolves it.
+#
+# [export.cloudtrail]
+# path = "s3://example-bucket/AWSLogs/"
+# egress_warn_gb = 5.0
+# export_dir = "/srv/exports/cloudtrail/"   # literal dir override (no auto-segment)
+
+# ════════════════════════════════════════════════════════════════════
+# Detector tuning - the engine room. You rarely need any of this; every
+# detector ships sensible defaults. The values shown ARE those defaults -
+# uncomment a line and change it to tune. Full surface per detector:
+# `sigwood <detector> --help`.
+# ════════════════════════════════════════════════════════════════════
+
+# beacon - periodic C2-style callbacks (FFT over connection timing).
+# [detectors.beacon]
+# threshold       = 0.5    # min composite score to report (0-1)
+# min_connections = 20     # min connections for a flow to qualify
+# bin_seconds     = 30     # FFT bin; leave at 30 - 10 aliases a 60s beacon
+
+# scan - vertical / horizontal / block / slow port scans.
+# [detectors.scan]
+# vertical_threshold   = 15     # distinct ports on one target → vertical
+# horizontal_threshold = 15     # distinct hosts on one port → horizontal
+# block_port_threshold = 20     # ports AND…
+# block_host_threshold = 20     # …hosts, both met → block scan
+# block_state_min      = 0.30   # min scan-state ratio for block/slow gates
+# slow_state_min       = 0.30
+# window_secs          = 3600   # detection window for vert/horiz/block
+# slow_min_ports       = 8      # slow scan: min ports across the dataset…
+# slow_min_buckets     = 4      # …over this many active time windows
+
+# duration - abnormally long-lived connections.
+# [detectors.duration]
+# min_duration_seconds = 1800   # 30m floor to flag (LOW; verbose-only)
+
+# dns - DNS clustering (HDBSCAN over per-query behavior).
+# [detectors.dns]
+# min_cluster_size               = 2000
+# min_samples                    = 100
+# threshold                      = 1.5    # keep ≤ thresh_high_entropy
+# thresh_high_entropy            = 1.8    # min per-label suspicion score to flag (weighted lexical heuristic, not Shannon; raise to quiet noise)
+# scan_dense_clusters            = true   # scan dense clusters for the tunnel shape
+# scan_min_high_entropy_fraction = 0.8    # frac of members ≥ thresh_high_entropy
+# scan_min_cluster_members       = 100    # cluster-size floor (rows)
+# scan_min_regdomain_share       = 0.8    # concentration under one registrable domain
+# scan_max_members_per_cluster   = 500    # per-cluster surfaced-sample cap
+# [detectors.dns.pihole]        # Pi-hole path clusters aggregated per-domain
+# min_cluster_size = 25         # rows, so its sizes run much smaller
+# min_samples      = 10
+
+# syslog - rare-event / reboot surfacing (drain3 templating + rarity + bursts).
+# [detectors.syslog]
+# rarity_pct        = 10     # bottom-N percentile of GLOBAL template count; inert at max_count=1
+# max_count         = 1      # rare iff count ≤ min(percentile, max_count); at 1 ⇒ singletons only
+# burst_gap_seconds = 60     # rare lines on a host closer than this = one burst
+# burst_min_size    = 3      # min rare lines in a window to collapse to a burst
+# reboot_cluster_seconds = 600     # reboot signals on a host closer than this = one boot event
+
+# aws - per-principal CloudTrail surfacing (rarity + weirdness + bursts).
+# [detectors.aws]
+# min_events                 = 50    # interactive principals below this are set aside
+# min_scorable_principals    = 5     # below this floor the ranked tier abstains
+# burst_gap_seconds          = 300   # first-seen actions closer than this = one burst
+# burst_window_edge_margin_seconds = 300   # window-edge service spread stays MEDIUM
+# burst_min_firsts           = 3     # min first-seen actions to form a burst
+# burst_high_error_rate      = 0.5   # burst → HIGH escalation gate
+# burst_high_service_count   = 3     # burst → HIGH escalation gate
+# composite_medium_threshold = 2.0   # ranked-principal severity bands (absolute
+# composite_low_threshold    = 1.0   # z, never rank position)

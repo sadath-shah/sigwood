@@ -1,0 +1,87 @@
+# ============================================================================
+# sigwood - Home-lab / self-hosted infrastructure DNS allowlist
+# ============================================================================
+#
+# *** THIS LIST IS OFF BY DEFAULT. ***
+# The patterns below are LIVE, but sigwood does not load this list until you
+# turn it on:
+#     sigwood allowlist enable homelab
+# Until then it suppresses nothing. (`sigwood allowlist show homelab` prints
+# what it WOULD suppress, so you can inspect before enabling.)
+#
+# WHY IT SHIPS THIS WAY
+#   Mapping each noisy "phone-home" domain to the tool that owns it, so you don't
+#   have to packet-sniff and experiment to figure out which update/telemetry/license
+#   endpoints belong to which piece of software. Unlike the common list (which is
+#   noise for everyone), home-lab tooling is noise only if you RUN it - and these
+#   are real product domains, so suppressing one is a genuine blind spot to it.
+#   That's why it's opt-in: you flip on the whole tier only when you operate this
+#   stack.
+#
+# WHAT'S IN HERE
+#   Monitoring (Splunk, Netdata, Zabbix, checkmk, Grafana, InfluxData, LibreNMS),
+#   hypervisors / NAS / containers (Proxmox, TrueNAS, Synology, QNAP, Unraid,
+#   Docker, Portainer), network gear (Ubiquiti/UniFi, pfSense, OPNsense,
+#   MikroTik, OpenWrt), and self-hosted apps (Pi-hole, Home Assistant, Plex).
+#
+#   DELIBERATELY ABSENT: vendor/employer-specific infrastructure (this is a
+#   general list, not anyone's particular shop), SaaS telemetry where opinions
+#   differ (Datadog/New Relic RUM beacons), and security-sensitive services you
+#   may well want to watch (password managers, mesh-VPN control planes).
+#
+# HOW SUPPRESSION WORKS (it has teeth)
+#   Allowlisting happens BEFORE detection. When this list is enabled, a DNS name
+#   matched here is removed from the data the detectors ever see - it cannot
+#   generate a finding. Enable it only if you trust and run this tooling.
+#
+# FORMAT
+#   One pattern per line. '#' starts an inline or full-line comment. Blank lines
+#   ignored. "re:" prefix = Python regex (re.search); otherwise fnmatch glob.
+#   Anchored suffix regex matches the registered domain and every subdomain.
+#   Don't want a particular tool suppressed even with the list on? Comment its
+#   line out (add a leading "# ") - the trailing "# label" stays.
+#
+# TUNING IT
+#   * Want this whole tier? `sigwood allowlist enable homelab`. Want it gone
+#     again? `sigwood allowlist disable homelab` (the default).
+#   * Adding your OWN site infrastructure (so package upgrades don't clobber your
+#     edits)? Drop it in ANY domains_* under
+#         ~/.sigwood/allowlist.d/
+#     (e.g. the shipped domains_user template) - always additive.
+#   * Want your own copy to edit freely? `sigwood allowlist copy homelab`.
+#
+# DISCLAIMER
+#   Best-effort curation, provided as-is with no warranty. Vendor domains change;
+#   review periodically. Intentionally not exhaustive - it covers common tools,
+#   not every self-hosted project in existence.
+# ============================================================================
+
+# --- Monitoring / observability -------------------------------------------
+re:\.splunk\.com$|\.splunkcloud\.com$|\.splunkbase\.com$                    # splunk
+re:\.netdata\.cloud$                                                        # netdata
+re:\.zabbix\.com$                                                           # zabbix
+re:\.checkmk\.com$                                                          # checkmk
+re:\.grafana\.com$|\.grafana\.net$                                          # grafana
+re:\.influxdata\.com$                                                       # influxdata
+re:\.librenms\.org$                                                         # librenms
+
+# --- Hypervisors / NAS / containers ---------------------------------------
+re:\.proxmox\.com$                                                          # proxmox
+re:\.truenas\.com$|\.ixsystems\.com$                                        # truenas
+re:\.synology\.com$|\.quickconnect\.to$                                     # synology
+re:\.qnap\.com$                                                             # qnap
+re:\.unraid\.net$                                                           # unraid
+re:\.docker\.com$                                                           # docker
+re:\.portainer\.io$                                                         # portainer
+
+# --- Network gear ---------------------------------------------------------
+re:\.ui\.com$|\.ubnt\.com$                                                  # ubiquiti_unifi
+re:\.pfsense\.org$|\.netgate\.com$                                          # pfsense
+re:\.opnsense\.org$                                                         # opnsense
+re:\.mikrotik\.com$                                                         # mikrotik
+re:\.openwrt\.org$                                                          # openwrt
+
+# --- Self-hosted apps -----------------------------------------------------
+re:\.pi-hole\.net$                                                          # pihole
+re:\.home-assistant\.io$|\.nabucasa\.com$                                   # home_assistant
+re:\.plex\.tv$|\.plex\.direct$                                              # plex
