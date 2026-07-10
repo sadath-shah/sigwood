@@ -47,6 +47,7 @@ from sigwood.common.sources import (
     resolve_digest_source,
     resolve_sources,
 )
+from sigwood.outputs._sanitize import strip_control
 
 _WIDTH = TEXT_RULE_WIDTH
 _SEP = TEXT_RULE
@@ -189,14 +190,13 @@ def run(
         # were selected but their sources are missing; both empty means the
         # detect spec itself selected none (a legal, disclosed no-op).
         if plan.skipped:
-            print(
+            _estderr(
                 "no detectors could run - check required log source paths in config "
-                "or CLI overrides",
-                file=sys.stderr,
+                "or CLI overrides"
             )
             return 1
         else:
-            print("no detectors to run - the detect spec selected none", file=sys.stderr)
+            _estderr("no detectors to run - the detect spec selected none")
             return 0
 
     # ── Load logs ─────────────────────────────────────────────────────────────
@@ -249,10 +249,7 @@ def run(
 
     if default_window_active and not quiet:
         # One pre-load line above the loader's `loaded <file>` progress lines.
-        print(
-            default_window_advisory(_default_spec),
-            file=sys.stderr,
-        )
+        _estderr(default_window_advisory(_default_spec))
 
     load_result = loader.load_required_logs(
         plan.needed_logs,
@@ -284,7 +281,7 @@ def run(
     logs = load_result.logs
 
     for warning in load_result.warnings:
-        print(f"{warning}", file=sys.stderr)
+        _estderr(f"{warning}")
 
     # Rotation FALLBACK disclosure on stderr (quiet-gated): the fallback decision
     # is only known mid-load (load_result.rotation_skips), so this "why did that
@@ -293,7 +290,7 @@ def run(
     # drift; the normal prune stays report-only. Loader records, runner formats.
     if not quiet:
         for line in _rotation_fallback_lines(load_result, plan):
-            print(line, file=sys.stderr)
+            _estderr(line)
 
     permission_error = _permission_denied_run_error(load_result, plan)
     if permission_error is not None:
@@ -511,12 +508,12 @@ def run(
                     data_window, data_sources, home_net,
                 )
             except Exception as exc:
-                print(f"{name}: prep error - {exc}", file=sys.stderr)
+                _estderr(f"{name}: prep error - {exc}")
                 continue
             try:
                 findings = mod.run(ctx)
             except Exception as exc:
-                print(f"{name}: detector error - {exc}", file=sys.stderr)
+                _estderr(f"{name}: detector error - {exc}")
                 findings = []
         else:
             with liveness(f"running {name}", enabled=not quiet) as _ln:
@@ -530,7 +527,7 @@ def run(
                     # seal (the "no false seal" path from
                     # tests/test_display.py:120-130); liveness's normal
                     # teardown clears the spinner line.
-                    print(f"{name}: prep error - {exc}", file=sys.stderr)
+                    _estderr(f"{name}: prep error - {exc}")
                     continue
                 try:
                     findings = mod.run(ctx)
@@ -547,7 +544,7 @@ def run(
                         else f"{name}: nothing"
                     )
                 except Exception as exc:
-                    print(f"{name}: detector error - {exc}", file=sys.stderr)
+                    _estderr(f"{name}: detector error - {exc}")
                     findings = []
 
         all_findings.extend(findings)
@@ -564,7 +561,7 @@ def run(
     # write. stdout / pipe runs (written_path is None) report nothing; -q
     # suppresses the status line; --dry-run returned long before this point.
     if written_path is not None and not quiet:
-        print(f"wrote report to {compact_home(written_path)}", file=sys.stderr)
+        _estderr(f"wrote report to {compact_home(written_path)}")
     return 0
 
 
@@ -1034,9 +1031,21 @@ def _check_required_logs(
     return None
 
 
+def _estderr(line: str) -> None:
+    """Emit one runner diagnostic line to stderr with terminal control bytes stripped.
+
+    Untrusted filenames, directory names, and exception text from a scanned tree reach
+    these diagnostics; a name embedding ESC / OSC / BEL could forge or hide terminal
+    output. Every runner-owned diagnostic stderr print routes through here, so
+    neutralization holds by construction. tqdm / liveness / progress own their own
+    display path (common/display.py) and are deliberately NOT routed through this helper.
+    """
+    print(strip_control(line), file=sys.stderr)
+
+
 def _warn_skipped(detector_name: str, reason: str) -> None:
     """Print a skip warning to stderr in the canonical format."""
-    print(f"{reason} - skipping {detector_name} detection", file=sys.stderr)
+    _estderr(f"{reason} - skipping {detector_name} detection")
 
 
 def _zeek_entry_display(p: Path) -> str:
@@ -2111,7 +2120,7 @@ def run_digest(
         )
 
     for warning in load_result.warnings:
-        print(f"{warning}", file=sys.stderr)
+        _estderr(f"{warning}")
 
     total_records = sum(load_result.record_counts.values())
     warn_above: int = cfg_sigwood.get("warn_above", 10_000_000)
@@ -2233,10 +2242,9 @@ def run_digest(
         # blob card as the whole story; --verbose retains the breadcrumb
         # for debugging.
         if verbose_level >= 1:
-            print(
+            _estderr(
                 f"digest: {fallback_blob_path.name}: summariser failed "
-                f"({type(exc).__name__}: {exc}); falling back to blob",
-                file=sys.stderr,
+                f"({type(exc).__name__}: {exc}); falling back to blob"
             )
         # Separator single-owner: _render_blob_for_path owns blob-card
         # emission. We thread the flag and do NOT emit here, or the run
