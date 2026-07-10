@@ -245,7 +245,8 @@ From source:
 ```bash
 git clone https://github.com/helixmap/sigwood
 cd sigwood
-pip install -e '.[all]'
+python3 -m venv .venv                # Python 3.11+
+.venv/bin/pip install -e '.[all]'
 ```
 
 ## Configuration
@@ -399,8 +400,9 @@ set.
 ```bash
 git clone https://github.com/helixmap/sigwood
 cd sigwood
-pip install -e '.[dev]'
-python -m pytest
+python3 -m venv .venv                # Python 3.11+
+.venv/bin/pip install -e '.[dev]'
+.venv/bin/python -m pytest
 ```
 
 `main` is kept runnable. Architecture tests cover the boundaries that matter - detector
