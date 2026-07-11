@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/helixmap/sigwood/main/docs/img/sigwood-mark.png" width="170" alt="sigwood">
+</p>
+
 # `sigwood`
 
 [![CI](https://github.com/helixmap/sigwood/actions/workflows/ci.yml/badge.svg)](https://github.com/helixmap/sigwood/actions/workflows/ci.yml)
@@ -19,20 +23,12 @@ admin's own box, over logs at rest.
 > **Status: early / pre-1.0 (`0.1.0`).** The six detectors below work and are
 > covered by tests, but interfaces may still move before 1.0. Feedback is welcome.
 
-**Docs:** [FAQ & how the detectors work](https://github.com/helixmap/sigwood/blob/main/docs/FAQ.md) · [Roadmap](https://github.com/helixmap/sigwood/blob/main/docs/ROADMAP.md) · [Known issues](https://github.com/helixmap/sigwood/blob/main/docs/KNOWN-ISSUES.md) · [Schemas](https://github.com/helixmap/sigwood/blob/main/docs/SCHEMA.md)
-
-A run opens with a summary banner - what was loaded, and which technique each
-detector used - then groups findings by detector, rendered as plain text in your
-terminal (default) or in richer formats such as html. The output below is
-illustrative; addresses are [RFC 5737](https://datatracker.ietf.org/doc/html/rfc5737)
-documentation space:
-
 <p align="center">
-  <img src="https://raw.githubusercontent.com/helixmap/sigwood/main/docs/demo.gif" alt="sigwood hunting one compromised host across conn, DNS, and syslog: two periodic C2 beacons, a high-entropy DGA lookup cluster under a single .xyz apex, and the matching root SSH login plus persistence events in syslog - run against synthetic RFC 5737 / reserved-domain data">
-</p>
-<p align="center">
-  <img src="https://raw.githubusercontent.com/helixmap/sigwood/main/docs/img/report.png"
-       width="760" alt="sigwood html report">
+  <b><a href="#quick-start">Install</a></b> ·
+  <a href="https://github.com/helixmap/sigwood/blob/main/docs/FAQ.md">FAQ</a> ·
+  <a href="https://github.com/helixmap/sigwood/blob/main/docs/ROADMAP.md">Roadmap</a> ·
+  <a href="https://github.com/helixmap/sigwood/blob/main/docs/KNOWN-ISSUES.md">Known issues</a> ·
+  <a href="https://github.com/helixmap/sigwood/blob/main/docs/SCHEMA.md">Schemas</a>
 </p>
 
 ## Quick start
@@ -72,6 +68,22 @@ sigwood hunt --config=demo/sigwood.toml    # beacons, a DGA burst, and the match
 The generated logs live under `demo/corpus/` (gitignored). The full walkthrough -
 including what each detector should surface - is in
 [`demo/README.md`](https://github.com/helixmap/sigwood/blob/main/demo/README.md).
+
+## What a hunt looks like
+
+A run opens with a summary banner - what was loaded, and which technique each
+detector used - then groups findings by detector, rendered as plain text in your
+terminal (default) or in richer formats such as html. The output below is
+illustrative; addresses are [RFC 5737](https://datatracker.ietf.org/doc/html/rfc5737)
+documentation space:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/helixmap/sigwood/main/docs/img/demo.svg" alt="sigwood hunting one compromised host across conn, DNS, and syslog: two periodic C2 beacons, a high-entropy DGA lookup cluster under a single .xyz apex, and the matching root SSH login plus persistence events in syslog - run against synthetic RFC 5737 / reserved-domain data">
+</p>
+<p align="center">
+  <img src="https://raw.githubusercontent.com/helixmap/sigwood/main/docs/img/report.png"
+       width="760" alt="sigwood html report">
+</p>
 
 ## Why use sigwood?
 

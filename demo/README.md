@@ -89,3 +89,44 @@ At the default seed, these commands show:
 The banner also shows a non-zero `allowlist:` line: a minority of the DNS queries
 are reverse-PTR / mDNS / DNS-SD lookups that the shipped allowlist suppresses
 before analysis, so you can see suppression working too.
+
+## The README animation (how it is built)
+
+The animated terminal demo at the top of the project README (`docs/img/demo.svg`) is
+a build product, not a hand-made asset: it is rendered from a committed recording so
+anyone can reproduce or re-shoot it. Two scripts and one cast file, all in this
+directory:
+
+- **`demo.cast`** - the recording itself, an
+  [asciicast v2](https://docs.asciinema.org/manual/asciicast/v2/) file: a
+  `sigwood digest` + `sigwood hunt` session against a sandbox built from this corpus.
+  It carries only synthetic data (RFC 5737 / RFC 1918 addresses, reserved domains, and
+  the random `.xyz` DGA stand-in) - the same corpus described above.
+- **`render.sh`** - turns the cast into the shipped SVG, deterministically. `termsvg`
+  exports the cast to an animated SVG, then a post-process applies the sigwood terminal
+  theme (black background, lime text, orange prompt, cyan method chrome), fixes the
+  font, and makes the animation play ONCE and hold the final frame so the report stays
+  readable. Re-running it is byte-identical.
+- **`record.sh`** - builds a throwaway sandbox HOME (this corpus + a config + a prompt)
+  and prints the record / convert / trim / render steps for shooting a fresh cast. Your
+  real `$HOME` is never touched.
+
+Regenerate the SVG from the committed cast (needs `termsvg` - `brew install termsvg`):
+
+```
+bash demo/render.sh
+```
+
+Re-record from scratch (needs `asciinema` as well):
+
+```
+bash demo/record.sh        # then follow the printed steps
+```
+
+Two deliberate choices worth knowing. The theme is applied at render time rather than
+baked into the recording, so it can change without re-shooting. And SVG, not GIF, is
+deliberate: it is crisp vector, small, and both renders and animates on the GitHub
+README and the PyPI project page. termsvg's own `-b`/`-t` theme flags are avoided on
+purpose - they collapse the terminal colour palette to a single colour, which would
+hide the coloured prompt and method chrome, so `render.sh` recolours the palette
+classes in the SVG directly instead.
