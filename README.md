@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/helixmap/sigwood/main/docs/img/sigwood-mark.png" width="170" alt="sigwood">
+  <img src="https://raw.githubusercontent.com/helixmap/sigwood/main/docs/img/sigwood-mark.png" width="300" alt="sigwood">
 </p>
 
 # `sigwood`
