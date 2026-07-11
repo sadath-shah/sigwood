@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/helixmap/sigwood/main/docs/img/sigwood-mark.png" width="400" alt="sigwood">
+  <img src="https://raw.githubusercontent.com/helixmap/sigwood/main/docs/img/sigwood-logo.png" width="300" alt="sigwood">
 </p>
-
-# `sigwood`
 
 [![CI](https://github.com/helixmap/sigwood/actions/workflows/ci.yml/badge.svg)](https://github.com/helixmap/sigwood/actions/workflows/ci.yml)
 

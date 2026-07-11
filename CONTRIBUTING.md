@@ -159,7 +159,7 @@ with a few drift tripwires keeping those in agreement. It's very doable, but it'
 cross-cutting enough that it's worth opening an issue to talk through the shape before
 building the whole thing.
 
-## Send us logs
+## Send logs
 
 One useful thing you can contribute is data, and you don't need to write any
 code to do it. The detectors are built against real logs, so a well-sanitized corpus
