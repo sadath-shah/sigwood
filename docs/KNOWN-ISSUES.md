@@ -28,6 +28,13 @@ check-in is still detected, but its reported period aliases to a longer value (a
 45-second beacon reads as roughly 90 seconds). Truthful sub-60s reporting needs finer
 bins and a re-tune of the scoring constants.
 
+**A slow beacon can be reported at a fraction of its true period.** For longer cadences the
+FFT's energy spreads into harmonics, and a harmonic peak can edge out the fundamental: in
+testing, a clean two-hour beacon was reported with a period of about one hour (half the truth)
+and a four-hour beacon as about eighty minutes (a third). The beacon is still detected and
+flagged - it is the reported period that is wrong, not a silent miss - so treat a reported
+period as approximate and confirm the real cadence against the raw connection timestamps.
+
 **High-volume DNS tunneling spread across many domains can slip the scan.** sigwood
 surfaces sustained tunneling that concentrates under a single registered domain, but a
 tunnel spread thin across many domains - or one below the conservative volume floor -
@@ -41,9 +48,11 @@ clustered without it, so a burst of random lookups that becomes voluminous enoug
 form its own cluster stops being "noise" and stops being reported - in testing, scaling
 the same DGA burst from 15 to 400 lookups took the report from ten findings to zero,
 with no disclosure that anything was set aside. Until the scan is extended to the
-Pi-hole path, corroborate a quiet Pi-hole report with per-domain query volume
-(`sigwood digest /var/log/pihole/pihole.log` shows the heaviest domains), or run the
-same traffic through Zeek, where the scan closes this gap.
+Pi-hole path, run the same traffic through Zeek, where the dense-cluster scan closes this
+gap directly. Failing that, read the distinct-domain count on the digest card
+(`sigwood digest /var/log/pihole/pihole.log` prints a `domains:` total): a DGA burst is many
+names queried once each, so it inflates the distinct-domain count while never rising to a
+heaviest-domain - which is why a per-domain-volume check does not surface it.
 
 **Letter-only high-entropy DGA labels are under-reported.** The DNS suspicion score
 leans heavily on digits, so a random no-digit label scores about one point below a
@@ -51,6 +60,21 @@ digit-bearing equivalent. That makes this class invisible to the HIGH/tunnel pat
 and leaves it below the surface gate for the vast majority of realistic lengths. Pivot on
 query volume, registrable-domain concentration, and allowlist review when no-digit
 labels show up in noisy DNS traffic.
+
+**Hex-encoded DNS tunneling can slip the high-volume scan.** A long hexadecimal label - the
+shape of base16-encoded tunneling - scores just below the high-entropy bar the dense-cluster
+scan requires: a 32-character hex label scores about 1.78 against a 1.8 bar, so a high-volume
+hex tunnel that grows into its own cluster can pass the scan without tripping it. The bias cuts
+both ways - a short hex ID scores higher and can read as high-entropy, while a long hex tunnel
+reads as just under the bar. Pivot on the volume and registrable-domain concentration of
+random-looking lookups when the scan is quiet.
+
+**On a small DNS capture, no clusters form and the method label still names the algorithm.**
+Zeek DNS analysis needs a substantial number of queries before HDBSCAN groups them (the default
+minimum cluster size is 2000); on a smaller capture every query is treated as noise and the
+findings come entirely from the per-label suspicion score, not from cluster shape. The
+`dns (fast-HDBSCAN)` method label names the clustering backend that ran even when it formed no
+clusters, so on a small capture the lexical score is doing the work.
 
 **Repeated reboots are caught every time, with a few grouping edges.** sigwood detects
 reboot signals across the whole log regardless of how rare they are, so a machine that

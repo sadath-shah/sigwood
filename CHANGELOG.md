@@ -6,6 +6,8 @@ All notable changes to sigwood are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-07-11
+
 ### Changed
 
 - Source and development install instructions in the README now create a virtualenv
@@ -30,6 +32,13 @@ All notable changes to sigwood are recorded here. The format follows
   IPv4 `169.254.0.0/16`), and the `255.255.255.255` limited broadcast are still excluded
   before scoring while real unicast hosts are kept.
 - Copy polish in the `init` wizard prompts.
+- `sigwood init` no longer lets a source you explicitly skip during setup quietly come
+  back. A skipped default source (Zeek or syslog) is now written as
+  `<key> = ""  # disabled during setup`, so the config merge cannot silently re-enable it;
+  removing a source still reverts it to the shipped default.
+- The `--dry-run` preview now counts Zeek logs in dated `zeekctl` layouts (the
+  `YYYY-MM-DD/` and `current/` subdirectories) the way a real run discovers them, and shows
+  `(unreadable)` for a directory it cannot read instead of a misleading `(0 files)`.
 - A closed downstream pipe (for example `sigwood hunt | head`) now exits quietly with
   Unix SIGPIPE semantics instead of printing a `BrokenPipeError` traceback.
 - The loader no longer crashes at import on platforms without the POSIX `grp`/`pwd`
@@ -82,5 +91,6 @@ agent, no account.
 - Analysis-window controls (`--since`/`--until`/`--days`/`--all`), a per-source default
   lookback window, and local-or-UTC time rendering.
 
-[Unreleased]: https://github.com/helixmap/sigwood/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/helixmap/sigwood/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/helixmap/sigwood/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/helixmap/sigwood/releases/tag/v0.1.0

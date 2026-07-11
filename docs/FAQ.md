@@ -270,9 +270,10 @@ domains are then ranked by a per-label **suspicion score** - sigwood's own weigh
 heuristic, not Shannon entropy - computed on the highest-scoring label across all subdomains,
 then grouped by registrable domain (eTLD+1), so fourteen random subdomains of one parent read
 as one finding instead of fourteen. The score leans on digit density, so it has three related
-biases: benign digit-heavy labels such as hex IDs or versioned hostnames can score high;
+biases: benign digit-heavy labels such as short hex IDs or versioned hostnames can score high;
 dictionary-word DGAs can score low; and genuinely random letter-only, no-digit labels can also
-score low. A digit-bearing random-looking label such as `x7f2k9q1` scores much higher than a
+score low (as can a long hexadecimal label, which sits just under the tunnel bar - see
+[KNOWN-ISSUES.md](KNOWN-ISSUES.md)). A digit-bearing random-looking label such as `x7f2k9q1` scores much higher than a
 letter-only label of similar length, so letter-only labels cannot reach HIGH severity or trip
 the dense-cluster tunnel scan, and they fall below the surface gate for the vast majority of
 realistic lengths. "High-entropy cluster" elsewhere is a colloquial name for that random-looking
