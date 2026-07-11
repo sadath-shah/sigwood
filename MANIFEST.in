@@ -1,0 +1,5 @@
+# The default sdist template pulls tests/test_*.py in but not the suite's
+# support files (conftest.py, __init__.py, _cloudtrail_fakes.py), so a
+# shipped sdist carries an uncollectable half-suite. The test suite is not
+# part of the distribution - prune it entirely.
+prune tests

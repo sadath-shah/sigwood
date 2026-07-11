@@ -14,10 +14,20 @@ All notable changes to sigwood are recorded here. The format follows
 - Splunk export now reports a TLS certificate-verification failure with an actionable
   message, naming the `verify_tls = false` setting under `[export.splunk]` for a
   self-signed certificate on a trusted network, instead of a generic connection error.
+- Source distributions no longer bundle the test suite - it shipped without the support
+  files needed to collect it, so it was unusable - and a release-time gate checks the
+  sdist carries no tests.
+- Package metadata now declares the license as the SPDX `license = "MIT"` expression with
+  `license-files`, dropping the deprecated MIT license classifier, and sets the operating
+  system classifier to POSIX.
 
 ### Fixed
 
 - Copy polish in the `init` wizard prompts.
+- A closed downstream pipe (for example `sigwood hunt | head`) now exits quietly with
+  Unix SIGPIPE semantics instead of printing a `BrokenPipeError` traceback.
+- The loader no longer crashes at import on platforms without the POSIX `grp`/`pwd`
+  modules; permission-denied diagnostics fall back to numeric owner and group ids there.
 
 ### Security
 

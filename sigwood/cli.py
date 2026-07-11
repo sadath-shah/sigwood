@@ -180,6 +180,7 @@ _SINGLE_DETECTOR_COMMANDS: frozenset[str] = frozenset({
 # routes through ExportAborted → exit 0; this is the mid-run sibling.
 _STOPPED_MESSAGE = "Stopped."
 _SIGINT_EXIT_CODE = 130
+_SIGPIPE_EXIT_CODE = 141
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -218,6 +219,17 @@ def main(argv: list[str] | None = None) -> None:
     except ValueError as exc:
         print(f"sigwood: {strip_control(exc)}", file=sys.stderr)
         sys.exit(1)
+    except BrokenPipeError:
+        # A downstream reader (`sigwood ... | head`) closed the pipe. Redirect
+        # any remaining stdout to devnull so the interpreter's shutdown flush
+        # cannot raise a second BrokenPipeError (a traceback + exit 120), then
+        # exit quietly - a closed pipe is not an error worth narrating.
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull, sys.stdout.fileno())
+        except OSError:
+            pass
+        sys.exit(_SIGPIPE_EXIT_CODE)
     except OSError as exc:
         print(f"sigwood: {strip_control(exc)}", file=sys.stderr)
         sys.exit(1)

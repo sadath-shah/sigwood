@@ -8,6 +8,9 @@ import json
 import lzma
 import os
 import stat
+import subprocess
+import sys
+import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -4635,3 +4638,73 @@ def test_load_required_logs_file_select_floor_still_peek_prunes(
     )
     info = result.rotation_skips["pihole*.log*"]
     assert info.skipped > 0 and not info.fallback
+
+
+def test_permission_denied_message_non_posix_numeric_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without grp/pwd (non-POSIX), the message falls back to numeric ids."""
+    import sigwood.common.loader.diagnostics as diagnostics
+
+    target = tmp_path / "pihole.log"
+    target.write_text("", encoding="utf-8")
+    fake_stat = SimpleNamespace(
+        st_uid=1001,
+        st_gid=1002,
+        st_mode=stat.S_IFREG | 0o640,
+    )
+    monkeypatch.setattr(diagnostics.os, "stat", lambda _path: fake_stat)
+    monkeypatch.setattr(diagnostics, "grp", None)
+    monkeypatch.setattr(diagnostics, "pwd", None)
+
+    msg = _permission_denied_message(target)
+
+    assert msg == (
+        "pihole.log: permission denied - owned 1001:1002 "
+        "(mode 0640); grant your user read access to it and retry"
+    )
+    assert "usermod" not in msg
+
+
+def test_diagnostics_imports_without_grp_pwd() -> None:
+    """diagnostics imports cleanly when grp/pwd are unavailable (non-POSIX).
+
+    A branch-level monkeypatch of grp/pwd runs after diagnostics is imported and
+    cannot exercise the import guard; only a fresh subprocess with the imports
+    blocked does.
+    """
+    script = textwrap.dedent(
+        """
+        import builtins
+        import sys
+
+        _real = builtins.__import__
+
+        def _blocking(name, *args, **kwargs):
+            if name in ("grp", "pwd"):
+                raise ImportError(name)
+            return _real(name, *args, **kwargs)
+
+        builtins.__import__ = _blocking
+        sys.modules.pop("grp", None)
+        sys.modules.pop("pwd", None)
+        for _name in list(sys.modules):
+            if _name == "sigwood.common.loader" or _name.startswith(
+                "sigwood.common.loader."
+            ):
+                del sys.modules[_name]
+
+        import sigwood.common.loader.diagnostics as d
+
+        assert d.grp is None and d.pwd is None
+        print("H5_OK")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "H5_OK" in result.stdout

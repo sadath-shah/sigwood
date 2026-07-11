@@ -122,6 +122,11 @@ unzip -p dist/sigwood-*.whl '*.dist-info/top_level.txt'
 # the shipped data templates must be inside the wheel (init/allowlist need them):
 python -m zipfile -l dist/sigwood-*.whl | grep 'sigwood/data/'
 
+# the sdist ships the package + metadata only - the suite is pruned (its
+# support files are unpackaged, so a shipped half-suite is uncollectable):
+tar -tzf dist/sigwood-*.tar.gz | grep -E '/(tests/|conftest\.py)' \
+  && echo 'STOP: sdist contains test files' || echo 'sdist: no tests OK'
+
 # README is baked into the release and PyPI never refetches or rewrites it - every
 # absolute image/badge URL must resolve NOW (a broken hero image is permanent):
 grep -oE 'https://[^") ]+' README.md | sort -u | xargs -I{} curl -s -o /dev/null -w "%{http_code} {}\n" {}

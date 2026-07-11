@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
+import textwrap
 
 import pytest
 import tomllib
@@ -1536,3 +1538,65 @@ def test_leading_path_verb_named_missing_keeps_plain_not_found(
     err = capsys.readouterr().err
     assert "sigwood: digest: not found" in err
     assert "is a command" not in err
+
+
+def test_broken_pipe_exits_141_silently(
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A closed downstream pipe exits 141 silently - no message, no traceback.
+
+    Pins the arm ordering: BrokenPipeError (an OSError subclass) is caught before
+    the generic OSError arm, which would otherwise print
+    `sigwood: [Errno 32] Broken pipe` and exit 1.
+    """
+
+    def _raise_broken_pipe(argv: list[str] | None = None) -> int:
+        raise BrokenPipeError(32, "Broken pipe")
+
+    monkeypatch.setattr(cli, "_main", _raise_broken_pipe)
+    with pytest.raises(SystemExit) as exc:
+        cli.main([])
+
+    assert exc.value.code == 141
+    captured = capsys.readouterr()
+    # capsys's stdout has no real fileno, so the arm's dup2 no-ops via except
+    # OSError and the close stays silent.
+    assert captured.err == ""
+    assert "Traceback" not in captured.err
+
+
+def test_broken_pipe_smoke_exits_141_silently() -> None:
+    """A real early pipe close over a full buffer exits 141 with empty stderr.
+
+    Exercises the actual fileno/dup2 branch a capsys unit cannot: the child
+    writes past the pipe buffer to a reader the parent has closed.
+    """
+    script = textwrap.dedent(
+        """
+        import sys
+        import sigwood.cli as c
+
+        def fake_main(argv=None):
+            sys.stdout.write("x" * (4 * 1024 * 1024))
+            sys.stdout.flush()
+            return 0
+
+        c._main = fake_main
+        c.main([])
+        """
+    )
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert proc.stdout is not None
+    proc.stdout.close()
+    rc = proc.wait()
+    err = proc.stderr.read()
+
+    assert rc == 141
+    assert err == b""
+    assert b"Traceback" not in err
+    assert b"Broken pipe" not in err

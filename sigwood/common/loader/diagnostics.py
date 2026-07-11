@@ -11,12 +11,17 @@ per-file failure wording). Imports the parser schema constants and the
 from __future__ import annotations
 
 import gzip
-import grp
 import lzma
 import os
-import pwd
 import stat
 from pathlib import Path
+
+try:
+    import grp
+    import pwd
+except ImportError:  # non-POSIX platforms (e.g. Windows) ship neither module
+    grp = None  # type: ignore[assignment]
+    pwd = None  # type: ignore[assignment]
 
 import pandas as pd
 
@@ -99,6 +104,16 @@ def _permission_denied_message(path: Path) -> str:
         return (
             f"{path.name}: permission denied - grant your user read "
             "access and retry"
+        )
+
+    if grp is None or pwd is None:
+        # Non-POSIX: name lookups and the usermod remedy are POSIX-only, so
+        # fall back to numeric owner/group ids and a generic remedy.
+        mode = f"{stat.S_IMODE(st.st_mode):04o}"
+        return (
+            f"{path.name}: permission denied - owned "
+            f"{st.st_uid}:{st.st_gid} (mode {mode}); grant your user read "
+            "access to it and retry"
         )
 
     try:
