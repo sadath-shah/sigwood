@@ -18,7 +18,7 @@ admin's own box, over logs at rest.
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](#license)
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
 
-> **Status: early / pre-1.0 (`0.1.0`).** The six detectors below work and are
+> **Status: early / pre-1.0 (`0.1.1`).** The six detectors below work and are
 > covered by tests, but interfaces may still move before 1.0. Feedback is welcome.
 
 <p align="center">
