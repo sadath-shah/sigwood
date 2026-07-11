@@ -110,17 +110,23 @@ BUILD=/tmp/sigwood-build
 rm -rf "$BUILD" && mkdir "$BUILD"
 git archive HEAD | tar -x -C "$BUILD" && cd "$BUILD"
 
-# the export IS the public tree - prove the suite green in it, not just the checkout:
-python3 -m venv .venv-rel && ./.venv-rel/bin/pip install -q -e ".[dev]" && ./.venv-rel/bin/python -m pytest -q
+# the export IS the public tree - prove the suite green in it, not just the checkout.
+# Run every packaging tool through THIS release venv, never a bare `python`: on
+# macOS/Homebrew the bare interpreter is usually a system python3 with no build/twine,
+# and `python -m twine upload` then silently no-ops with `No module named twine`
+# AFTER the tag is already pushed. `.[dev]` does not pull the packaging tools, so add
+# build + twine to the same venv here and use it through step 5:
+python3 -m venv .venv-rel && ./.venv-rel/bin/pip install -q -e ".[dev]" build twine
+./.venv-rel/bin/python -m pytest -q
 
-python -m build                          # sdist + wheel into dist/
-python -m twine check dist/*             # metadata + README render must PASS
+./.venv-rel/bin/python -m build              # sdist + wheel into dist/
+./.venv-rel/bin/python -m twine check dist/* # metadata + README render must PASS
 
 # the wheel must contain exactly the package - top_level.txt reads 'sigwood':
 unzip -p dist/sigwood-*.whl '*.dist-info/top_level.txt'
 
 # the shipped data templates must be inside the wheel (init/allowlist need them):
-python -m zipfile -l dist/sigwood-*.whl | grep 'sigwood/data/'
+./.venv-rel/bin/python -m zipfile -l dist/sigwood-*.whl | grep 'sigwood/data/'
 
 # the sdist ships the package + metadata only - the suite is pruned (its
 # support files are unpackaged, so a shipped half-suite is uncollectable):
@@ -157,10 +163,14 @@ A version number is permanent: you cannot re-upload `0.1.0`, only yank it and pu
 new number. Upload the exact artifacts you validated in step 3:
 
 ```bash
-python -m twine upload "$BUILD"/dist/*
+"$BUILD"/.venv-rel/bin/twine upload "$BUILD"/dist/*   # the venv that HAS twine (step 3)
 ```
 
-Confirm the project page at `https://pypi.org/project/sigwood/`.
+Do NOT use a bare `python -m twine upload` - on macOS/Homebrew `python` is often a
+system interpreter with no twine, which no-ops with `No module named twine` after the tag
+is already pushed. Use the step-3 release venv (`"$BUILD"/.venv-rel/bin/twine`, or any venv
+where `pip install twine` has run), and confirm the project page at
+`https://pypi.org/project/sigwood/`.
 
 **First real release only:** delete the 0.0.0 placeholder RELEASE (Manage → release
 0.0.0 → Options → Delete) - the project survives on the new version. Do **not** delete
@@ -191,6 +201,11 @@ python3 -m venv /tmp/sigwood-postpub && /tmp/sigwood-postpub/bin/pip install sig
 /tmp/sigwood-postpub/bin/sigwood --version    # matches the release
 rm -rf /tmp/sigwood-postpub
 ```
+
+A fresh `pip install` pulling the new version is the authoritative "it's live" signal. The
+JSON metadata endpoint (`https://pypi.org/pypi/sigwood/json`) is Fastly-cached and lags the
+file index pip resolves against - it can still list only the previous version for a minute or
+two after a successful upload, so trust the install, not the JSON.
 
 On a PEP 668 box (Debian 12+ / Raspberry Pi OS), also confirm the documented install
 path end to end: a bare `pip install sigwood` outside a venv is REFUSED
