@@ -491,23 +491,45 @@ def load_numeric_rule_file(path: Path) -> list[NumericRule]:
     return rules
 
 
+def _entry_from_raw(raw: dict[str, Any], *, where: str) -> AllowlistEntry:
+    """Build one AllowlistEntry from a raw stanza dict, with an actionable error.
+
+    ``where`` names the stanza's origin for the message (a *.toml path, or the
+    config file's inline ``[[allowlist.entry]]`` table). A stanza without a
+    ``match`` key is a user-config mistake and must surface as an actionable
+    message at the CLI boundary, never a bare ``KeyError: 'match'``.
+    """
+    if "match" not in raw:
+        raise ValueError(
+            f"{where}: allowlist stanza has no 'match' key - each "
+            f"[[allowlist.entry]] needs one (e.g. match = \"ip_pair\" or "
+            f"match = \"dst_port\")"
+        )
+    extra = {k: v for k, v in raw.items() if k not in ("match", "comment", "detectors")}
+    return AllowlistEntry(
+        match=raw["match"],
+        comment=raw.get("comment", ""),
+        detectors=_as_list(raw.get("detectors", [])),
+        extra=extra,
+    )
+
+
 def load_stanza_file(path: Path) -> list[AllowlistEntry]:
     """Load a TOML stanza file and return a list of AllowlistEntry objects."""
     import tomllib
 
     with path.open("rb") as fh:
-        data = tomllib.load(fh)
+        try:
+            data = tomllib.load(fh)
+        except tomllib.TOMLDecodeError as exc:
+            # Name the file: a drop-in's parse error must point the operator at
+            # the offending stanza file, not read as an anonymous TOML failure.
+            raise ValueError(f"{path.name}: not valid TOML - {exc}") from exc
 
-    entries: list[AllowlistEntry] = []
-    for raw in data.get("allowlist", {}).get("entry", []):
-        extra = {k: v for k, v in raw.items() if k not in ("match", "comment", "detectors")}
-        entries.append(AllowlistEntry(
-            match=raw["match"],
-            comment=raw.get("comment", ""),
-            detectors=_as_list(raw.get("detectors", [])),
-            extra=extra,
-        ))
-    return entries
+    return [
+        _entry_from_raw(raw, where=path.name)
+        for raw in data.get("allowlist", {}).get("entry", [])
+    ]
 
 
 # Shipped package data - located relative to this file so it works for both
@@ -762,17 +784,13 @@ def resolve_allowlist_plan(config: dict[str, Any]) -> AllowlistPlan:
         if path.exists():
             _emit(path.name, "numeric", "config-path", path, True, "config path")
 
-    # TOML stanza entries (classification - kept for future detectors):
-    # inline [[allowlist.entry]] plus every *.toml in allowlist.d.
+    # TOML stanza entries: inline [[allowlist.entry]] plus every *.toml in
+    # allowlist.d. Today ip_pair / dst_port stanzas convert to numeric
+    # suppression in matcher_from_plan; the classification role (a detector
+    # consuming what-a-thing-is) has no shipped consumer yet.
     entries: list[AllowlistEntry] = []
     for raw in allowlist_cfg.get("entry", []):
-        extra = {k: v for k, v in raw.items() if k not in ("match", "comment", "detectors")}
-        entries.append(AllowlistEntry(
-            match=raw["match"],
-            comment=raw.get("comment", ""),
-            detectors=_as_list(raw.get("detectors", [])),
-            extra=extra,
-        ))
+        entries.append(_entry_from_raw(raw, where="[[allowlist.entry]] in config"))
     for toml_file in stanza_files:            # is_file-gated + sorted in the pass above
         entries.extend(load_stanza_file(toml_file))
 

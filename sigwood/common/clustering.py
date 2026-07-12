@@ -1,8 +1,11 @@
 """HDBSCAN backend shim - prefer fast_hdbscan, fall back to stock hdbscan.
 
 Both backends expose an identical ``HDBSCAN(min_cluster_size=, min_samples=)``
-plus ``.fit_predict(X)`` API and produce equivalent findings; ``fast_hdbscan``
-is a drop-in accelerator over stock ``hdbscan``.
+plus ``.fit_predict(X)`` API; ``fast_hdbscan`` is a drop-in accelerator over
+stock ``hdbscan``. They are two implementations of the same algorithm: a seeded
+parity test pins identical cluster partitions on well-separated data, but
+labelings on ambiguous, borderline data are not guaranteed byte-identical
+between backends.
 
 This module resolves which implementation is in use exactly once at import
 time and exposes that class at module level as ``HDBSCAN`` so callers can

@@ -455,3 +455,51 @@ def test_load_required_logs_dedupes_duplicate_inputs_no_double_count(
     )
     assert result.record_counts == {"conn*.log*": 1}
     assert result.data_size_bytes == expected_size
+
+
+def test_mixed_directory_positional_prints_vote_advisory(
+    tmp_path: Path, capsys: pytest.CaptureFixture,
+) -> None:
+    """A mixed-family directory positional discloses the vote outcome on
+    stderr - the losing family's files are not loaded as their own kind, and
+    that must never be a silent omission. Status line: no sigwood: prefix."""
+    log_dir = tmp_path / "mixed"
+    log_dir.mkdir()
+    for i in (1, 2):
+        (log_dir / f"conn.{i}.log").write_text(
+            '{"_path":"conn","ts":1779750000.0,"uid":"C1",'
+            '"id.orig_h":"192.0.2.10","id.resp_h":"198.51.100.20",'
+            '"id.resp_p":443,"proto":"tcp"}\n',
+            encoding="utf-8",
+        )
+    (log_dir / "messages").write_text(
+        "<134>Jun 11 12:00:00 host1 sshd[1234]: Accepted publickey for user\n",
+        encoding="utf-8",
+    )
+
+    buckets = cli._build_positional_buckets([str(log_dir)], detector_module=None)
+
+    err = capsys.readouterr().err
+    assert buckets == {"zeek_dir": [str(log_dir)]}
+    assert (
+        f"{log_dir}: mixed log types sampled (zeek 2, syslog 1) - "
+        "hunting it as zeek; pass the other files directly to include them"
+    ) in err
+    assert "sigwood:" not in err
+
+
+def test_single_family_directory_positional_prints_no_advisory(
+    tmp_path: Path, capsys: pytest.CaptureFixture,
+) -> None:
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "conn.log").write_text(
+        '{"_path":"conn","ts":1779750000.0,"uid":"C1",'
+        '"id.orig_h":"192.0.2.10","id.resp_h":"198.51.100.20",'
+        '"id.resp_p":443,"proto":"tcp"}\n',
+        encoding="utf-8",
+    )
+
+    cli._build_positional_buckets([str(log_dir)], detector_module=None)
+
+    assert "mixed log types" not in capsys.readouterr().err

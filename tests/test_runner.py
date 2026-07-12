@@ -2511,14 +2511,17 @@ def test_liveness_suppresses_seal_on_detector_error(
     tmp_path: Path, capture_summary, monkeypatch, capsys
 ) -> None:
     """A detector that raises Exception leaves the existing 'detector error'
-    line, and the liveness block emits NO sealed record (no false success)."""
+    line, and the liveness block emits NO sealed record (no false success).
+    The loop continues (the error does not abort the run), but the run is NOT
+    clean: the failure is recorded on the run summary and the exit code goes
+    nonzero - a crashed detector must never serialize as a quiet night."""
     def _boom(ctx):
         raise RuntimeError("boom")
 
     fakes = {"gamma": _fake_detector("gamma", _boom)}
     monkeypatch.setattr(runner, "discover_detectors", lambda **_: fakes)
 
-    runner.run(config={"sigwood": {"detect": "gamma"}})
+    rc = runner.run(config={"sigwood": {"detect": "gamma"}})
 
     captured = capsys.readouterr()
     assert "gamma: detector error - boom" in captured.err
@@ -2530,6 +2533,12 @@ def test_liveness_suppresses_seal_on_detector_error(
     # The patched handler still got called with an empty findings list
     # (run completes; the error did not abort the loop).
     assert capture_summary["findings"] == []
+    # The failure is disclosed, not swallowed: recorded on the summary
+    # (name → phase-prefixed first-line reason) and reflected in the exit code.
+    assert capture_summary["summary"].detectors_failed == {
+        "gamma": "detector error - boom"
+    }
+    assert rc == 1
 
 
 def test_liveness_skips_outer_spinner_for_syslog(
@@ -2739,13 +2748,15 @@ def test_prep_error_renders_prep_error_label_not_detector_error(
         runner, "_prepare_detector_context", _exploding_prep,
     )
 
-    runner.run(config=_BEACON_ONLY, zeek_dir=zeek_dir)
+    rc = runner.run(config=_BEACON_ONLY, zeek_dir=zeek_dir)
 
     err = capsys.readouterr().err
     assert "beacon: prep error - induced prep failure" in err
     # The detector-error label must NOT appear - that would mislead the
     # operator about WHERE the failure was. Separation-of-powers detail.
     assert "beacon: detector error" not in err
+    # A prep failure is a failed detector too - the exit code goes nonzero.
+    assert rc == 1
 
 
 def test_detector_error_label_preserved_byte_identical(
@@ -2762,12 +2773,158 @@ def test_detector_error_label_preserved_byte_identical(
 
     monkeypatch.setattr(beacon_mod, "run", _exploding_run)
 
-    runner.run(config=_BEACON_ONLY, zeek_dir=zeek_dir)
+    rc = runner.run(config=_BEACON_ONLY, zeek_dir=zeek_dir)
 
     err = capsys.readouterr().err
     assert "beacon: detector error - induced detector failure" in err
     # The new prep-error label must NOT appear for a detector-side raise.
     assert "beacon: prep error" not in err
+    # A detector-side crash is a failed detector - the exit code goes nonzero.
+    assert rc == 1
+
+
+# ── Failed-detector disclosure - detectors_failed + nonzero exit ─────────────
+#
+# A crashed detector (prep or run) must never serialize as a clean run: the
+# loop continues past it, but the failure is recorded on
+# RunSummary.detectors_failed and run() exits nonzero, so a scheduled run's
+# machine feed and exit code both carry the incident. detectors_failed is the
+# one summary field written DURING the detector loop (after the text banner
+# has flushed) - json/html render at end() and see it; the text handler
+# discloses at the report tail.
+
+
+def test_crashed_detector_recorded_on_summary_with_phase_reason(
+    tmp_path: Path, capture_summary, monkeypatch, capsys,
+) -> None:
+    """A detector-side raise records {name: 'detector error - <first line>'};
+    the failed name STAYS in detectors_run (run = selected and attempted) and
+    never leaks into detectors_skipped."""
+    def _boom(ctx):
+        raise RuntimeError("first line\nsecond line never recorded")
+
+    fakes = {
+        "alpha": _fake_detector("alpha", _boom),
+        "beta": _fake_detector("beta", lambda ctx: []),
+    }
+    monkeypatch.setattr(runner, "discover_detectors", lambda **_: fakes)
+
+    rc = runner.run(config={"sigwood": {"detect": "alpha,beta"}})
+
+    s = capture_summary["summary"]
+    assert s.detectors_failed == {"alpha": "detector error - first line"}
+    assert s.detectors_run == ["alpha", "beta"]
+    assert s.detectors_skipped == {}
+    assert rc == 1
+
+
+def test_crash_does_not_drop_sibling_detector_findings(
+    tmp_path: Path, capture_summary, monkeypatch, capsys,
+) -> None:
+    """The loop-continues contract holds: a sibling detector's findings are
+    still delivered to the handler even though the run exits nonzero."""
+    f1 = SimpleNamespace()  # opaque placeholder Finding - handler is patched
+
+    def _boom(ctx):
+        raise RuntimeError("boom")
+
+    fakes = {
+        "alpha": _fake_detector("alpha", _boom),
+        "beta": _fake_detector("beta", lambda ctx: [f1]),
+    }
+    monkeypatch.setattr(runner, "discover_detectors", lambda **_: fakes)
+
+    rc = runner.run(config={"sigwood": {"detect": "alpha,beta"}})
+
+    assert capture_summary["findings"] == [f1]
+    assert rc == 1
+
+
+def test_syslog_branch_crash_recorded_and_exits_nonzero(
+    tmp_path: Path, capture_summary, monkeypatch, capsys,
+) -> None:
+    """The syslog loop branch (no outer liveness spinner) records failures
+    identically to the non-syslog branch."""
+    def _boom(ctx):
+        raise RuntimeError("drain3 exploded")
+
+    fakes = {"syslog": _fake_detector("syslog", _boom)}
+    monkeypatch.setattr(runner, "discover_detectors", lambda **_: fakes)
+
+    rc = runner.run(config={"sigwood": {"detect": "syslog"}})
+
+    s = capture_summary["summary"]
+    assert s.detectors_failed == {"syslog": "detector error - drain3 exploded"}
+    assert rc == 1
+
+
+def test_prep_error_recorded_with_prep_phase_reason(
+    tmp_path: Path, capture_summary, monkeypatch, capsys,
+) -> None:
+    """A prep failure records 'prep error - ...' (the runner's failure, not
+    the detector's) and still exits nonzero - the detector was selected and
+    produced no result either way."""
+    def _exploding_prep(*_a, **_kw):
+        raise RuntimeError("induced prep failure")
+
+    fakes = {"alpha": _fake_detector("alpha", lambda ctx: [])}
+    monkeypatch.setattr(runner, "discover_detectors", lambda **_: fakes)
+    monkeypatch.setattr(runner, "_prepare_detector_context", _exploding_prep)
+
+    rc = runner.run(config={"sigwood": {"detect": "alpha"}})
+
+    s = capture_summary["summary"]
+    assert s.detectors_failed == {"alpha": "prep error - induced prep failure"}
+    assert rc == 1
+
+
+def test_clean_run_has_empty_detectors_failed_and_exit_zero(
+    tmp_path: Path, capture_summary, monkeypatch, capsys,
+) -> None:
+    """No crash → detectors_failed stays {} and the exit code stays 0."""
+    fakes = {"alpha": _fake_detector("alpha", lambda ctx: [])}
+    monkeypatch.setattr(runner, "discover_detectors", lambda **_: fakes)
+
+    rc = runner.run(config={"sigwood": {"detect": "alpha"}})
+
+    assert capture_summary["summary"].detectors_failed == {}
+    assert rc == 0
+
+
+def test_failure_reason_empty_message_falls_back_to_type_name() -> None:
+    """An exception with an empty message records the type name (the
+    discover_detectors import-failure shape) - never a dangling 'error - '."""
+    assert runner._failure_reason("detector error", RuntimeError()) == (
+        "detector error - RuntimeError"
+    )
+    assert runner._failure_reason("prep error", KeyError("conn_state")) == (
+        "prep error - 'conn_state'"
+    )
+
+
+def test_crashed_detector_exit_code_crosses_the_cli_seam(
+    tmp_path: Path, monkeypatch, capsys,
+) -> None:
+    """End to end through the public boundary: a crashed detector makes the
+    PROCESS exit code nonzero (real cli.main → real runner.run, no runner
+    mock) - the scheduled-run alerting contract."""
+    from sigwood import cli
+    from sigwood.common import config as cfg
+
+    import sigwood.detectors.beacon as beacon_mod
+
+    def _exploding_run(_ctx):
+        raise RuntimeError("induced detector failure")
+
+    monkeypatch.setattr(beacon_mod, "run", _exploding_run)
+    monkeypatch.setattr(cfg, "SEARCH_PATHS", [])  # defaults only, no dev config
+
+    zeek_dir = _zeek_conn_dir(tmp_path)
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main(["-q", str(zeek_dir / "conn.log")])
+
+    assert excinfo.value.code == 1
+    assert "beacon: detector error - induced detector failure" in capsys.readouterr().err
 
 
 def test_liveness_seal_lands_once_for_successful_run(
@@ -3433,12 +3590,14 @@ def test_beacon_non_established_note_defensive_on_missing_conn_state(
     # runs pre-loop, OUTSIDE the detector's error containment, so it must not raise; it
     # returns the (0, total) no-disclosure shape and no note is emitted. The detector's
     # own _filter_conn KeyError on the absent column is the contained, ledgered residual
-    # - the run still completes cleanly (the note-path bug class is the uncontained one).
+    # - the run still completes (loop-continues), recorded as a failed detector with a
+    # nonzero exit (the note-path bug class is the uncontained one).
     recs = [_conn(_TS_JAN5 + i) for i in range(1000)]
     zeek_dir = _make_flat_zeek(tmp_path, recs)
-    assert runner.run(config=_BEACON_ONLY, zeek_dir=zeek_dir) == 0
+    assert runner.run(config=_BEACON_ONLY, zeek_dir=zeek_dir) == 1
     s = capture_summary["summary"]
     assert not any(_NON_EST_NOTE_SUBSTR in n for n in s.notes)
+    assert list(s.detectors_failed) == ["beacon"]
 
 
 def test_beacon_non_established_note_below_row_floor_is_silent(tmp_path, capture_summary):
@@ -3600,3 +3759,17 @@ def test_conn_summary_only_reaches_summary_surface_without_warning(
         assert "not found" in s.detectors_skipped[name]
     assert "no Zeek records found" not in err
     assert not any("no Zeek records found" in n for n in s.notes)
+
+
+def test_scoped_out_required_source_skip_names_scope(monkeypatch) -> None:
+    """A required source absent because positional targets scoped it out reads
+    as out-of-scope - never "not configured" (the operator may have pointed
+    straight at a directory holding that family's files)."""
+    plan = runner.build_run_plan("beacon", scope=frozenset({"syslog_dir"}))
+    assert plan.skipped["beacon"] == "zeek_dir outside this run's positional scope"
+
+
+def test_unscoped_missing_required_source_skip_reads_not_configured() -> None:
+    """Without positional scoping the config-gap wording stands."""
+    plan = runner.build_run_plan("beacon")
+    assert plan.skipped["beacon"] == "zeek_dir not configured"

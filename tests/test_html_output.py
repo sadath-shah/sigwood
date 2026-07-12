@@ -394,3 +394,34 @@ def test_render_emits_landscape_for_wide_portrait_for_narrow() -> None:
     assert "@page { size: A4 landscape; margin: 1.5cm; }" in wide
     assert "@page { size: A4; margin: 1.5cm; }" in narrow
     assert "landscape" not in narrow
+
+
+# ── failed-detector header row ───────────────────────────────────────────────
+
+
+def test_failed_detector_row_renders_in_header() -> None:
+    html = _render([], )
+    assert 'class="fail"' not in html  # clean run - vanish
+    html = render_report_html(
+        [],
+        _summary(detectors_failed={"beacon": "detector error - boom"}),
+        verbose_level=0,
+        max_findings_per_detector=100,
+    )
+    assert '<div class="fail">beacon - detector error - boom</div>' in html
+
+
+def test_failed_detector_reason_is_escaped_and_control_stripped() -> None:
+    """The reason can echo log-derived bytes - it must pass the _esc choke
+    point (markup escaped, control bytes stripped)."""
+    html = render_report_html(
+        [],
+        _summary(detectors_failed={
+            "dns": 'detector error - <script>alert(1)</script>\x1b[31m&"',
+        }),
+        verbose_level=0,
+        max_findings_per_detector=100,
+    )
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;" in html
+    _assert_no_data_controls(html)

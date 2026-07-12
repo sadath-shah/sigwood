@@ -132,6 +132,12 @@ def _render_header(run_summary: "RunSummary | None") -> str:
             rows.append(_meta_row("detectors", f'<span class="chips">{chips}</span>'))
         for name, reason in run_summary.detectors_skipped.items():
             rows.append(f'<div class="skip">{_esc(name)} - {_esc(reason)}</div>')
+        # Failed detectors (crashed during prep or run - recorded on the
+        # summary during the detector loop; html renders at end(), so the
+        # header sees the final state). The REASON can echo log-derived
+        # bytes - it routes through the _esc choke point like every value.
+        for name, reason in run_summary.detectors_failed.items():
+            rows.append(f'<div class="fail">{_esc(name)} - {_esc(reason)}</div>')
         for note in run_summary.notes:
             rows.append(f'<div class="note">{_esc(note)}</div>')
 
@@ -382,6 +388,7 @@ header { border-bottom: 2px solid var(--border); padding-bottom: 18px; margin-bo
 .meta-label { color: var(--muted); width: 96px; flex: 0 0 96px; text-transform: lowercase; }
 .meta-value { color: var(--fg); }
 .skip, .note { color: var(--muted); font-size: 13px; margin: 3px 0 0 96px; }
+.fail { color: var(--sev-high); font-size: 13px; margin: 3px 0 0 96px; }
 .chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
 .chip {
   display: inline-block; padding: 1px 9px; border-radius: 11px; font-size: 13px;

@@ -420,6 +420,11 @@ class TextHandler(OutputHandler):
         self._stream = stream
         self._verbose_level = verbose_level
         self._max_findings_per_detector = max_findings_per_detector
+        self._run_summary: RunSummary | None = None
+        # Whether write() rendered at least one detector group - a rendered
+        # group already ends with a trailing blank, so the failed-detector
+        # tail must not add a second one (single-blank separation either way).
+        self._wrote_groups = False
 
     def begin(self, run_summary: RunSummary) -> None:
         """Print the run summary header before any findings.
@@ -427,7 +432,12 @@ class TextHandler(OutputHandler):
         No leading blank: cross-stream separation from the preceding stderr
         load phase is owned by the stderr side (``display.phase_separator``,
         called by the runner). The banner is the first stdout line.
+
+        The summary is also stashed for ``end()``: ``detectors_failed`` is
+        written during the detector loop (after this banner has flushed), so
+        the failed-detector disclosure can only render at the report tail.
         """
+        self._run_summary = run_summary
         print(self._render_run_summary(run_summary), file=self._stream)
 
     def write(self, findings: list[Finding]) -> None:
@@ -464,9 +474,28 @@ class TextHandler(OutputHandler):
                     file=self._stream,
                 )
             print(file=self._stream)
+            self._wrote_groups = True
 
     def end(self) -> None:
-        """No-op for text output - stdout needs no closing."""
+        """Render the failed-detector tail; stdout needs no closing.
+
+        A detector that crashed mid-run (prep or run) contributed zero
+        findings and would otherwise vanish from a saved report - the stderr
+        narration does not travel into ``--out`` files. Failures are recorded
+        on the run summary DURING the loop, after the banner has flushed, so
+        the report tail is the one in-report surface that can carry them.
+        Mirrors the banner's ``skipped:`` grammar; the REASON is untrusted
+        (an exception message can echo log-derived bytes) and routes through
+        ``_sanitize``; the detector name is tool-authored and left alone.
+        Vanish-don't-dash: a clean run renders nothing here.
+        """
+        if self._run_summary is None or not self._run_summary.detectors_failed:
+            return
+        if not self._wrote_groups:
+            print(file=self._stream)
+        for name, reason in self._run_summary.detectors_failed.items():
+            for line in _summary_line("failed:", f"{name} - {_sanitize(reason)}"):
+                print(line, file=self._stream)
 
     def _render_run_summary(
         self,

@@ -360,9 +360,12 @@ def _burst_finding(
         detector=DETECTOR_NAME,
         severity=Severity.INFO,
         title=host,
+        # Neutral wording at construction: whether this cluster is a reboot is
+        # not known here - _reconcile is the sole writer of the "rebooted"
+        # label and upgrades the description alongside it. An unlabeled burst
+        # must not be narrated as a boot the detector never observed.
         description=(
-            "A cluster of rare log lines on this host within a short window, "
-            "resembling a boot or batch event."
+            "A cluster of rare log lines on this host within a short window."
         ),
         evidence={
             "tier":         "burst",
@@ -514,6 +517,12 @@ def _reconcile(
             candidates.sort(key=lambda c: (c[0], c[1]))   # nearest; tie -> smaller ss
             target = candidates[0][2]
             target.evidence["label"] = "rebooted"
+            # The label and the prose move together: only a burst a boot event
+            # actually claimed may be described as a reboot.
+            target.description = (
+                "A cluster of rare log lines on this host within a short "
+                "window, coinciding with a reboot of this host."
+            )
             claimed.add(id(target))
         else:
             out.append(_reboot_finding(evt, now, data_window))

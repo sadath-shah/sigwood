@@ -259,3 +259,28 @@ def test_payload_invariant_under_display_switch(pin_tz, restore_display_utc) -> 
 
     assert off_bytes == on_bytes
     assert "2026-06-01T12:00:00+00:00" in off_bytes  # window start, ISO-8601 UTC
+
+
+def test_detectors_failed_serialized() -> None:
+    """A crashed detector's failure record rides the machine feed - name →
+    phase-prefixed reason - so a scheduled run's consumer can alert on it."""
+    buf = io.StringIO()
+    h = JsonHandler(stream=buf, verbose_level=0)
+    summary = _run_summary()
+    # Written during the detector loop (after begin) - the handler serializes
+    # at end(), so the mutation must be visible in the payload.
+    h.begin(summary)
+    summary.detectors_failed["beacon"] = "detector error - boom"
+    h.write([])
+    h.end()
+    payload = json.loads(buf.getvalue())
+    assert payload["run_summary"]["detectors_failed"] == {
+        "beacon": "detector error - boom"
+    }
+
+
+def test_detectors_failed_empty_on_clean_run() -> None:
+    """A clean run carries an explicit empty dict - consumers test length,
+    never key presence."""
+    payload = _emit([])
+    assert payload["run_summary"]["detectors_failed"] == {}

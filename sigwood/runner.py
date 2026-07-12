@@ -165,6 +165,7 @@ def run(
             syslog_dir=syslog_dirs,
             pihole_dir=pihole_dirs,
             cloudtrail_dir=cloudtrail_dirs,
+            scope=scope,
         )
 
     if dry_run:
@@ -509,11 +510,13 @@ def run(
                 )
             except Exception as exc:
                 _estderr(f"{name}: prep error - {exc}")
+                run_summary.detectors_failed[name] = _failure_reason("prep error", exc)
                 continue
             try:
                 findings = mod.run(ctx)
             except Exception as exc:
                 _estderr(f"{name}: detector error - {exc}")
+                run_summary.detectors_failed[name] = _failure_reason("detector error", exc)
                 findings = []
         else:
             with liveness(f"running {name}", enabled=not quiet) as _ln:
@@ -528,6 +531,7 @@ def run(
                     # tests/test_display.py:120-130); liveness's normal
                     # teardown clears the spinner line.
                     _estderr(f"{name}: prep error - {exc}")
+                    run_summary.detectors_failed[name] = _failure_reason("prep error", exc)
                     continue
                 try:
                     findings = mod.run(ctx)
@@ -545,6 +549,7 @@ def run(
                     )
                 except Exception as exc:
                     _estderr(f"{name}: detector error - {exc}")
+                    run_summary.detectors_failed[name] = _failure_reason("detector error", exc)
                     findings = []
 
         all_findings.extend(findings)
@@ -562,6 +567,13 @@ def run(
     # suppresses the status line; --dry-run returned long before this point.
     if written_path is not None and not quiet:
         _estderr(f"wrote report to {compact_home(written_path)}")
+    # A selected detector that crashed (prep or run) is a partial run failure:
+    # the report rendered and the loop continued, but the exit code must not
+    # read as a clean night - a scheduled run alerts on nonzero. The
+    # per-detector stderr line above is the explanation; the report / json
+    # feed carry the same failures via run_summary.detectors_failed.
+    if run_summary.detectors_failed:
+        return 1
     return 0
 
 
@@ -609,6 +621,21 @@ def _prepare_detector_context(
         data_sources=data_sources,
         home_net=home_net,
     )
+
+
+def _failure_reason(phase: str, exc: Exception) -> str:
+    """The recorded reason for a failed detector: ``<phase> - <first line>``.
+
+    ``phase`` is ``"prep error"`` or ``"detector error"`` - the same labels
+    the live stderr lines carry, so the stored reason and the narration
+    cannot drift. First line only (an exception message can be multi-line);
+    an empty message falls back to the exception type name (the
+    ``discover_detectors`` import-failure shape). The reason never embeds
+    the detector name - every render surface prefixes it.
+    """
+    msg = str(exc).strip()
+    first = msg.splitlines()[0] if msg else type(exc).__name__
+    return f"{phase} - {first}"
 
 
 def discover_detectors(*, _failures: dict[str, str] | None = None) -> dict[str, Any]:
@@ -661,6 +688,7 @@ def build_run_plan(
     pihole_dir: Path | list[Path] | None = None,
     cloudtrail_dir: Path | list[Path] | None = None,
     detectors: dict[str, Any] | None = None,
+    scope: frozenset[str] | None = None,
 ) -> RunPlan:
     """Resolve detector selection, required-log skips, and log patterns to load.
 
@@ -671,7 +699,9 @@ def build_run_plan(
     ``discover_cloudtrail_files``, ``_syslog_files``); plan and loader MUST
     discover the same universe. A detector whose module import failed at
     discovery is skipped with an ``import failed - <reason>`` entry - never
-    silently dropped, never reported as unknown.
+    silently dropped, never reported as unknown. ``scope`` (the run's
+    positional-scoping signal) only refines skip WORDING - a family scoped out
+    by positional targets reads as out-of-scope, not "not configured".
     """
     import_failures: dict[str, str] = {}
     all_detectors = detectors or discover_detectors(_failures=import_failures)
@@ -704,7 +734,7 @@ def build_run_plan(
         if name in import_failures:
             skipped[name] = f"import failed - {import_failures[name]}"
             continue
-        reason = _check_required_logs(all_detectors[name], source_map)
+        reason = _check_required_logs(all_detectors[name], source_map, scope)
         if reason:
             skipped[name] = reason
         else:
@@ -986,14 +1016,24 @@ def _is_optional_satisfiable(
 def _check_required_logs(
     detector_module: Any,
     source_map: dict[str, Path | list[Path]],
+    scope: frozenset[str] | None = None,
 ) -> str | None:
-    """Return None if all REQUIRED_LOGS are available, or a human-readable reason if not."""
+    """Return None if all REQUIRED_LOGS are available, or a human-readable reason if not.
+
+    ``scope`` is the run's positional-scoping signal (None = unconstrained).
+    A source family absent BECAUSE the operator's positional targets scoped it
+    out must not read as "not configured" - the operator may have pointed
+    straight at a directory containing that family's files; the honest reason
+    names the scoping, not a config gap.
+    """
     for req in getattr(detector_module, "REQUIRED_LOGS", []):
         source = req["source"]
         pattern = req["pattern"]
 
         paths = _as_path_list(source_map.get(source))
         if not paths:
+            if scope is not None and source not in scope:
+                return f"{source} outside this run's positional scope"
             return f"{source} not configured"
 
         # Existence skip-reason mirrors single-input behavior on a one-element

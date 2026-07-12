@@ -206,8 +206,8 @@ def test_digest_all_error_exits_nonzero(
 ) -> None:
     """Missing path in a multi-path fan-out → error on stderr, exit 1.
 
-    Note: a directory positional in multi-path is silently skipped - see
-    test_digest_multipath_directory_is_silently_skipped. This test isolates
+    Note: a directory positional in multi-path is skipped with a status note -
+    see test_digest_multipath_directory_skipped_with_note. This test isolates
     the missing-path error path, which retains its stderr message.
     """
     _stub_config(monkeypatch)
@@ -241,20 +241,22 @@ def test_digest_mixed_empty_and_error_no_render_exits_nonzero(
     assert "not found" in captured.err
 
 
-# ─── Directory positionals: silent skip in fan-out, error on lone ───────────
+# ─── Directory positionals: noted skip in fan-out, error on lone ────────────
 #
-# A directory positional in shell-expanded multi-path fan-out should not
-# interleave error noise between cards. The v1 contract for a lone-directory
-# positional (single positional, hits a directory) stays - actionable stderr
-# message and exit 1. Other per-path errors (missing path, sniff failure)
-# continue to surface in fan-out - only directories get the silent treatment.
+# A directory positional in shell-expanded multi-path fan-out is skipped with
+# a one-line stderr status note (no `sigwood:` prefix, no error tally, exit
+# unchanged) - a glob catching subdirectories is routine, but a skip must
+# never be a silent omission. The v1 contract for a lone-directory positional
+# (single positional, hits a directory) stays - actionable stderr message and
+# exit 1. Other per-path errors (missing path, sniff failure) continue to
+# surface in fan-out as errors.
 
 
-def test_digest_multipath_directory_is_silently_skipped(
+def test_digest_multipath_directory_skipped_with_note(
     tmp_path: Path, monkeypatch, capsys,
 ) -> None:
-    """Multi-path fan-out: a directory positional is silently skipped - no
-    stderr noise, no error tally, sibling files still render."""
+    """Multi-path fan-out: a directory positional is skipped with a status
+    note - no error tally, sibling files still render, exit stays 0."""
     _stub_config(monkeypatch)
     calls = _spy_run_digest_calls(monkeypatch)
 
@@ -268,16 +270,16 @@ def test_digest_multipath_directory_is_silently_skipped(
     captured = capsys.readouterr()
     assert rc == 0  # ≥1 rendered
     assert len(calls) == 1  # only the conn file routed
-    # No directory noise on stderr - that's the point.
-    assert "must be a file, not a directory" not in captured.err
-    assert str(a_dir) not in captured.err
+    # The skip is disclosed as a status line, never as an error.
+    assert f"skipping directory {a_dir} - digest reads files" in captured.err
+    assert "sigwood:" not in captured.err
 
 
-def test_digest_multipath_all_directories_exits_zero_silently(
+def test_digest_multipath_all_directories_exits_zero_with_notes(
     tmp_path: Path, monkeypatch, capsys,
 ) -> None:
-    """Multi-path fan-out where every positional is a directory: no output to
-    stdout or stderr, exit 0 (consistent with 'silent skip directories').
+    """Multi-path fan-out where every positional is a directory: no cards,
+    one skip note per directory, exit 0.
 
     rendered=0, errored=0 → exit-code policy returns 0 via the
     ``errored == 0`` branch in cli.py.
@@ -295,7 +297,8 @@ def test_digest_multipath_all_directories_exits_zero_silently(
     assert rc == 0
     assert calls == []
     assert captured.out == ""
-    assert captured.err == ""
+    assert captured.err.count("skipping directory") == 3
+    assert "sigwood:" not in captured.err
 
 
 def test_digest_lone_directory_positional_still_errors(

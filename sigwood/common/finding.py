@@ -113,6 +113,16 @@ class RunSummary:
     # Per-run allowlist coverage for the banner's `allowlist:` line. The runner
     # always provides it on the detect path; None elsewhere (no line rendered).
     suppression: "SuppressionSummary | None" = None
+    # Detectors that were selected and started but did not complete - name →
+    # "prep error - <first line>" / "detector error - <first line>" (the phase
+    # prefix distinguishes a runner-prep failure from a detector-side raise;
+    # the reason never embeds the detector name - renderers prefix it). The ONE
+    # field written DURING the detector loop: it records loop outcomes, so
+    # begin()-time surfaces (the text banner) never read it - it is consumed by
+    # end()-time renderers (json, the html header, the text report tail).
+    # Failed names REMAIN in detectors_run (run = selected and attempted);
+    # a failed detector contributed zero findings.
+    detectors_failed: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass

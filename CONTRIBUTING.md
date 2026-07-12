@@ -209,6 +209,7 @@ for this too.
 ```bash
 git clone https://github.com/helixmap/sigwood
 cd sigwood
+python3 -m venv .venv && source .venv/bin/activate
 pip install -e '.[dev]'      # runtime extras + pytest
 python -m pytest             # from the repo root
 ```

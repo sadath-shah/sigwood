@@ -983,3 +983,22 @@ def test_run_source_blind_no_facility_severity_required(monkeypatch) -> None:
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_unlabeled_burst_description_never_claims_boot() -> None:
+    """An unlabeled burst must not be narrated as a boot the detector never
+    observed; the reboot wording appears only after _reconcile labels it."""
+    rows = [_rare_row(_BASE_TS + i, "h", f"r{i}", program="cron", template_id=i)
+            for i in range(3)]
+    burst_pairs = _collapse_bursts(
+        _rare_df(rows), {i: 1 for i in range(3)}, 1,
+        gap_seconds=60, min_size=3, now=_NOW, data_window=_WINDOW,
+    )
+    assert len(burst_pairs) == 1
+    burst = burst_pairs[0][1]
+    assert "boot" not in burst.description.lower()
+
+    evt = _BootEvent("h", _BASE_TS + 1, _BASE_TS + 1, 1)
+    _reconcile([evt], burst_pairs, gap_seconds=60, now=_NOW, data_window=_WINDOW)
+    assert burst.evidence["label"] == "rebooted"
+    assert "reboot" in burst.description

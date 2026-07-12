@@ -72,8 +72,7 @@ including what each detector should surface - is in
 A run opens with a summary banner - what was loaded, and which technique each
 detector used - then groups findings by detector, rendered as plain text in your
 terminal (default) or in richer formats such as html. The output below is
-illustrative; addresses are [RFC 5737](https://datatracker.ietf.org/doc/html/rfc5737)
-documentation space:
+illustrative, not real network data:
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/helixmap/sigwood/main/docs/img/demo.svg" alt="sigwood hunting one compromised host across conn, DNS, and syslog: two periodic C2 beacons, a high-entropy DGA lookup cluster under a single .xyz apex, and the matching root SSH login plus persistence events in syslog - run against synthetic RFC 5737 / reserved-domain data">
@@ -137,7 +136,10 @@ place), it spans several log families rather than conn/dns alone, it ships an
 orientation verb (`digest`) for logs you haven't met yet, and it names the technique
 behind every finding on the report itself. If you already run RITA against a dedicated
 Zeek sensor, keep it - sigwood is for the box where the logs already live and the
-analyst who wants one lightweight tool across all of them.
+analyst who wants one tool across all of them. (One caveat on footprint: the
+scientific-Python stack underneath is a ~450 MB install and reads logs into memory
+rather than streaming - light to operate, not light in resources. See
+[KNOWN-ISSUES.md](docs/KNOWN-ISSUES.md) for the memory envelope.)
 
 ## How a run works
 
@@ -331,8 +333,11 @@ detector sees it, so signal isn't buried in plumbing. Two kinds of allowlist fil
 
 - **Flat files = suppression.** One rule per line - an IP, a CIDR, a `:port/proto`, or a
   domain glob/regex. Matching traffic is dropped before any detector runs.
-- **TOML stanzas = classification.** When a detector needs to know *what* something is
-  (a nameserver, a backup client) rather than whether to drop it.
+- **TOML stanzas = structured suppression.** The same drop, expressed as an entry that
+  carries a comment and an optional per-detector scope (`detectors = ["duration"]`).
+  A richer classification role - telling a detector *what* something is (a nameserver,
+  a backup client) rather than dropping it - is planned, but no shipped detector
+  consumes it yet, so today a stanza suppresses.
 
 sigwood ships three curated **domain** lists, toggled by name:
 

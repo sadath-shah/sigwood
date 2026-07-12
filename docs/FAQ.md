@@ -41,7 +41,11 @@ other and of their log formats. The dns detector works just fine on Zeek's dns.l
 If you do have a Pi-hole, however, sigwood offers rich support, incorporating
 the `was-blocked` disposition of a query in its findings. It needs the flat
 query log (pihole.log), so query logging has to be on; it doesn't read the FTL
-database (yet). Pi-hole is a great project and is worth a look: https://pi-hole.net/
+database (yet). One thing to know when you run Zeek and Pi-hole together: Zeek
+is the clustering source and Pi-hole enriches those findings - queries that only
+the Pi-hole log saw aren't separately clustered on that run (run the Pi-hole log
+on its own to cluster it directly; details in
+[KNOWN-ISSUES.md](KNOWN-ISSUES.md)). Pi-hole is a great project and is worth a look: https://pi-hole.net/
 
 ### How is this different from a SIEM? From an IDS?
 
@@ -92,9 +96,10 @@ Tell it once and it'll stop. sigwood filters **before** it analyzes: a flat-file
 suppresses known-good traffic before any detector sees the data. Add the host, CIDR,
 `:port/proto`, or domain pattern to your allowlist and that traffic never reaches the
 detector - so it can't be flagged, and your noise floor is yours to set. (There's a second,
-separate kind of allowlist - TOML stanzas - for *classifying* something as a known
-nameserver or backup client, when a detector needs to know what a thing is rather than
-whether to drop it.)
+structured form - TOML stanzas - which suppress the same way but let a rule carry a
+comment and a per-detector scope. A future classification role, where a detector is told
+what a thing *is* - a nameserver, a backup client - rather than dropping it, is planned
+but not consumed by any shipped detector yet.)
 
 ### What does it suppress out of the box?
 
@@ -179,17 +184,21 @@ Yes - it's batch, stateless, and built for unattended use. `-q` quiets the progr
 narration, `-y` auto-accepts the large-dataset prompt, and `--out=<dir>/` (or `report_dir` in
 config) writes a collision-safe named report. A hunt exits `0` whether or not it finds
 anything - a clean Unix contract, where nonzero means the *run itself* failed, not that a
-threat was found - so schedule it and inspect the JSON to decide whether to alert. A nightly
+threat was found - so schedule it and inspect the JSON to decide whether to alert. That
+contract covers a detector that crashes mid-run too: the run continues past it, but the
+exit code goes nonzero and the JSON feed names it under `run_summary.detectors_failed`
+(empty `{}` on a clean run) - a crashed detector never reads as a quiet night. A nightly
 cron line:
 
 ```
 0 3 * * *  sigwood hunt -q -y --format=json --out=~/.sigwood/reports/
 ```
 
-and, to page yourself only when a run actually found something:
+and, to page yourself when a run found something - or when a detector failed and the
+night's coverage is incomplete:
 
 ```
-sigwood hunt -q -y --format=json | jq -e '.findings | length > 0' && your-alert-here
+sigwood hunt -q -y --format=json | jq -e '(.findings | length > 0) or (.run_summary.detectors_failed | length > 0)' && your-alert-here
 ```
 
 No daemon and no state between runs - each run stands on its own.
@@ -375,11 +384,11 @@ reproduced.
 
 ## The project
 
-### A brand-new repo, one commit, tidy docs - was this written by AI?
+### A brand-new repo, a short history, tidy docs - was this written by AI?
 
-Um yep, development was AI-assisted, no point being coy about it. The rest has a less exciting explanation than you might hope. sigwood was built over a few months against one homelab with Zeek, Pi-hole, syslog, a small CloudTrail corpus, and only opened up once it did something useful. The history starts at a single squashed commit because the real history was full of explorations that included that homelab's own IPs, hostnames, and other assets. Squashing was the cleanest way to get every example into line with RFC 5737 (the 192.0.2.x ranges throughout) with nothing real left in the tree. So a repo that looks like it appeared fully formed from Zeus's forehead is really just one person's ordinary, messy iteration, compressed into a single public commit, with the mess kept private for a reason.
+Um yep, development was AI-assisted, no point being coy about it. The rest has a less exciting explanation than you might hope. sigwood was built over a few months against one homelab with Zeek, Pi-hole, syslog, a small CloudTrail corpus, and only opened up once it did something useful. The history starts at a single squashed commit because the real history was full of explorations that included that homelab's own IPs, hostnames, and other assets. Squashing was the cleanest way to get every example into line with RFC 5737 (the 192.0.2.x ranges throughout) with nothing real left in the tree. So a repo that looks like it appeared fully formed from Zeus's forehead is really just one person's ordinary, messy iteration, compressed behind that first squashed commit, with the mess kept private for a reason.
 
-None of this is a way of asking for trust, however; the hope is for trust to be unnecessary. The detection methods aren't inventions: FFT for periodicity, HDBSCAN for clustering, drain3 for templating, a plain z-score composite. All named, published techniques you can look up, credited elsewhere in this FAQ. The privacy claim you can check yourself: tldextract is pinned to run offline, so the tool talks to no one. The test suite is deterministic and passes on a cold install. And [KNOWN-ISSUES.md](KNOWN-ISSUES.md) names and quantifies the tool's own flaws rather than burying them. Read the code, run the tests, point it at your own logs - that will tell you more than this paragraph can.
+You don't have to take any of this on faith, though - most of it is checkable. The detection methods are named, published techniques you can look up: FFT for periodicity, HDBSCAN for clustering, drain3 for templating, a plain z-score composite, credited elsewhere in this FAQ. The privacy claim you can verify yourself: tldextract is pinned to run offline, so the tool talks to no one. The test suite is deterministic and passes on a cold install. And [KNOWN-ISSUES.md](KNOWN-ISSUES.md) names and quantifies the tool's own flaws rather than burying them. Read the code, run the tests, point it at your own logs - that will tell you more than this paragraph can.
 
 ### What state is sigwood in?
 

@@ -772,13 +772,30 @@ def _build_positional_buckets(
     Returns ``{family_key: [positional, …]}`` for the families touched.
     ``detector_module=None`` triggers the router's content-sniff mode
     (detect=all / unknown selector). Empty input → empty dict.
+
+    A DIRECTORY positional whose bounded sample holds more than one log family
+    is routed to the winning family only - the losing families' files are not
+    loaded as their own kind, so that outcome is disclosed on stderr per
+    directory (a status line, not an error; the run proceeds).
     """
     from sigwood.common.sources import route_positional_source
 
     buckets: dict[str, list[str]] = {}
+    mixed_votes: dict[str, dict[str, int]] = {}
     for p in paths:
-        routed = route_positional_source(p, detector_module=detector_module)
+        routed = route_positional_source(
+            p, detector_module=detector_module, _vote_sink=mixed_votes,
+        )
         buckets.setdefault(routed, []).append(p)
+        if p_tally := mixed_votes.pop(str(Path(p).expanduser()), None):
+            tally = ", ".join(f"{origin} {n}" for origin, n in p_tally.items())
+            family = routed.removesuffix("_dir")
+            print(
+                f"{strip_control(str(p))}: mixed log types sampled ({tally}) - "
+                f"hunting it as {family}; pass the other files directly to "
+                f"include them",
+                file=sys.stderr,
+            )
     return buckets
 
 
@@ -1184,7 +1201,9 @@ def _run_digest(args: list[str]) -> int:
                 errored += 1
                 continue
             if path.is_dir():
-                # Multi-path fan-out: silently skip a directory positional.
+                # Multi-path fan-out: skip a directory positional with a
+                # status note (a shell glob catching subdirectories is
+                # routine - not an error, but never a silent omission).
                 # The lone-positional case keeps the v1 contract - whole-
                 # directory positionals are rejected with an actionable
                 # stderr message and exit 1.
@@ -1194,6 +1213,11 @@ def _run_digest(args: list[str]) -> int:
                         file=sys.stderr,
                     )
                     errored += 1
+                else:
+                    print(
+                        f"skipping directory {strip_control(path)} - digest reads files",
+                        file=sys.stderr,
+                    )
                 continue
             try:
                 result = sniff_format_detailed(path)

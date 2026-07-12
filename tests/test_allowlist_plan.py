@@ -10,6 +10,7 @@ Fixtures use example.com / RFC 5737 only.
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from sigwood.common import allowlist as al
 
@@ -147,3 +148,44 @@ def test_count_helpers_short_circuit_when_empty() -> None:
                          "port": [443], "proto": ["tcp"]})
     assert empty.count_domain_suppressed(df) == 0
     assert empty.count_numeric_suppressed(conn) == 0
+
+
+# ── stanza shape errors - actionable, never a bare KeyError ──────────────────
+
+
+def test_stanza_file_missing_match_raises_actionable(tmp_path) -> None:
+    """A *.toml stanza without a 'match' key is a user-config mistake and must
+    surface as an actionable message naming the file - never KeyError."""
+    roles = tmp_path / "roles.toml"
+    roles.write_text(
+        '[[allowlist.entry]]\nrole = "nameserver"\nip = "192.0.2.53"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as excinfo:
+        al.load_stanza_file(roles)
+    msg = str(excinfo.value)
+    assert "roles.toml" in msg
+    assert "'match'" in msg
+    assert "ip_pair" in msg  # the message teaches the fix
+
+
+def test_inline_stanza_missing_match_raises_actionable() -> None:
+    """The inline [[allowlist.entry]] path gets the same guard, naming the
+    config origin instead of a file."""
+    with pytest.raises(ValueError) as excinfo:
+        al.resolve_allowlist_plan(
+            {"allowlist": {"entry": [{"role": "nameserver"}]}}
+        )
+    assert "[[allowlist.entry]] in config" in str(excinfo.value)
+
+
+def test_malformed_stanza_toml_names_the_file(tmp_path) -> None:
+    """A drop-in that fails TOML parsing points the operator at the offending
+    file, not an anonymous parse error."""
+    bad = tmp_path / "bad.toml"
+    bad.write_text("not = valid = toml\n", encoding="utf-8")
+    with pytest.raises(ValueError) as excinfo:
+        al.load_stanza_file(bad)
+    msg = str(excinfo.value)
+    assert "bad.toml" in msg
+    assert "not valid TOML" in msg

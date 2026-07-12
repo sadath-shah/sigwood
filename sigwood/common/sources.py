@@ -74,12 +74,16 @@ def _permission_hint_origin(path: Path) -> str | None:
     return None
 
 
-def _directory_vote_origin(path: Path) -> str | None:
-    """Return the dominant source origin from a bounded directory sample."""
+def _directory_vote_tally(path: Path) -> dict[str, int]:
+    """Tally source origins over a bounded directory sample.
+
+    One tally feeds both the winner pick and the mixed-sample disclosure so the
+    two can never disagree. Empty dict = nothing recognizable sampled.
+    """
     try:
         children = sorted(path.iterdir(), key=lambda p: p.name)
     except OSError:
-        return None
+        return {}
 
     votes: dict[str, int] = {}
     sampled = 0
@@ -102,9 +106,27 @@ def _directory_vote_origin(path: Path) -> str | None:
             origin = result.origin
         if origin in _DIR_ORIGIN_PRIORITY:
             votes[origin] = votes.get(origin, 0) + 1
+    return votes
 
+
+def _directory_vote_origin(
+    path: Path, *, _vote_sink: dict[str, dict[str, int]] | None = None,
+) -> str | None:
+    """Return the dominant source origin from a bounded directory sample.
+
+    ``_vote_sink`` is an optional caller-owned sink (the ``discover_detectors``
+    ``_failures`` shape): when the sample holds MORE THAN ONE recognizable
+    family, the full tally is recorded under the directory's string path so the
+    caller can disclose that the losing families will not load as their own
+    kind. A single-family or empty sample records nothing.
+    """
+    votes = _directory_vote_tally(path)
     if not votes:
         return None
+    if _vote_sink is not None and len(votes) > 1:
+        _vote_sink[str(path)] = dict(
+            sorted(votes.items(), key=lambda kv: (-kv[1], kv[0]))
+        )
     return max(
         votes,
         key=lambda origin: (
@@ -375,10 +397,14 @@ def route_positional_source(
     path: str | Path,
     *,
     detector_module: Any | None,
+    _vote_sink: dict[str, dict[str, int]] | None = None,
 ) -> str:
     """Decide which source-dir key a positional PATH routes to.
 
-    Generic - no detector-name special cases.
+    Generic - no detector-name special cases. ``_vote_sink`` (caller-owned,
+    optional) receives the per-directory family tally whenever a DIRECTORY
+    vote sampled more than one recognizable family - the caller discloses
+    that the losing families are not loaded as their own kind.
 
     **Named-module mode** (``detector_module`` is an imported detector module):
     ``REQUIRED_LOGS`` carriers (beacon, scan, duration, aws, …) route to
@@ -402,7 +428,7 @@ def route_positional_source(
 
     if detector_module is None:
         if path_obj.is_dir():
-            origin = _directory_vote_origin(path_obj)
+            origin = _directory_vote_origin(path_obj, _vote_sink=_vote_sink)
             candidate = f"{origin}_dir" if origin else None
             return candidate if candidate in _ALL_KEYS else "zeek_dir"
         try:
@@ -429,7 +455,7 @@ def route_positional_source(
     default = optional[0] if optional else "zeek_dir"
 
     if path_obj.is_dir():
-        origin = _directory_vote_origin(path_obj)
+        origin = _directory_vote_origin(path_obj, _vote_sink=_vote_sink)
         candidate = f"{origin}_dir" if origin else None
         return candidate if candidate in optional else default
     try:

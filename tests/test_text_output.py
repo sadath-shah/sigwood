@@ -1458,3 +1458,76 @@ def test_empty_level_visible_detector_renders_no_header() -> None:
     # be added for the empty detector group.
     assert out.count("═" * 80) == 2, "expected exactly 2 banner (double) rules"
     assert out.count("─" * 80) == 0, "no single group-header rule for empty group"
+
+
+# ── failed-detector tail disclosure ──────────────────────────────────────────
+# detectors_failed is written on the summary DURING the detector loop, after
+# the banner has flushed - the report tail is the one in-report text surface
+# that can carry it (the stderr narration does not travel into --out files).
+
+
+def test_failed_detector_tail_renders_after_end() -> None:
+    stream = io.StringIO()
+    handler = TextHandler(stream=stream)
+    summary = _summary()
+    handler.begin(summary)
+    # Recorded mid-loop, after the banner printed - end() must still see it.
+    summary.detectors_failed["beacon"] = "detector error - boom"
+    handler.end()
+    out = stream.getvalue()
+    assert "failed:" in out
+    assert "beacon - detector error - boom" in out
+    # The banner itself (flushed before the failure existed) carries no line.
+    banner_end = out.index("═" * TEXT_RULE_WIDTH, out.index("═" * TEXT_RULE_WIDTH) + 1)
+    assert "failed:" not in out[:banner_end]
+
+
+def test_failed_detector_tail_vanishes_on_clean_run() -> None:
+    """Vanish-don't-dash: no failures → end() emits nothing."""
+    stream = io.StringIO()
+    handler = TextHandler(stream=stream)
+    handler.begin(_summary())
+    before = stream.getvalue()
+    handler.end()
+    assert stream.getvalue() == before
+
+
+def test_failed_detector_tail_strips_control_bytes_from_reason() -> None:
+    """The reason is untrusted (an exception message can echo log-derived
+    bytes) - it routes through the text sanitize seam."""
+    stream = io.StringIO()
+    handler = TextHandler(stream=stream)
+    summary = _summary()
+    handler.begin(summary)
+    summary.detectors_failed["dns"] = "detector error - \x1b[31mforged\x9b0K"
+    handler.end()
+    out = stream.getvalue()
+    assert "\x1b" not in out and "\x9b" not in out
+    assert "forged" in out
+
+
+def test_failed_detector_tail_single_blank_separation() -> None:
+    """Exactly one blank line separates the tail from what precedes it: a
+    rendered findings group already ends with a trailing blank (end() adds
+    none); a banner-only report gets one from end()."""
+    # Banner-only: end() owns the separating blank.
+    stream = io.StringIO()
+    handler = TextHandler(stream=stream)
+    summary = _summary()
+    handler.begin(summary)
+    summary.detectors_failed["beacon"] = "detector error - boom"
+    handler.end()
+    assert "\n\nfailed:" in stream.getvalue()
+    assert "\n\n\nfailed:" not in stream.getvalue()
+    # With a rendered group: write() left the trailing blank; end() adds none.
+    fs = [_bare_finding("scan", Severity.MEDIUM)]
+    stream2 = io.StringIO()
+    handler2 = TextHandler(stream=stream2)
+    summary2 = _summary()
+    handler2._stream = stream2
+    handler2.begin(summary2)
+    handler2.write(fs)
+    summary2.detectors_failed["beacon"] = "detector error - boom"
+    handler2.end()
+    assert "\n\nfailed:" in stream2.getvalue()
+    assert "\n\n\nfailed:" not in stream2.getvalue()

@@ -10,9 +10,10 @@ Contract under test (sigwood.common.clustering):
    the same priority order the shim itself uses.
 3. When ``fast_hdbscan`` is force-blocked at import time, the shim falls
    back to stock ``hdbscan`` and reports ``ACTIVE_BACKEND == "hdbscan"``.
-
-Clustering numerics and equivalence between the two backends are out of
-scope - that lives with the dns detector tests.
+4. Cross-backend label parity on well-separated data (below): the two
+   backends must produce the SAME cluster partition on unambiguous
+   structure, or "drop-in accelerator" is an overclaim. Parity on
+   ambiguous, borderline data is deliberately NOT asserted.
 """
 
 from __future__ import annotations
@@ -108,3 +109,49 @@ def test_fallback_resolves_to_hdbscan_when_fast_hdbscan_blocked(monkeypatch):
     finally:
         sys.modules.pop("fast_hdbscan", None)
         importlib.reload(clustering)
+
+
+def _partition(labels) -> tuple[frozenset, frozenset]:
+    """Reduce a labeling to a label-permutation-invariant partition.
+
+    Returns (set of clusters-as-member-index-sets, noise index set) so two
+    labelings compare equal iff they group the same points together,
+    regardless of which integer names each cluster.
+    """
+    from collections import defaultdict
+
+    groups: dict[int, list[int]] = defaultdict(list)
+    for i, label in enumerate(labels):
+        groups[int(label)].append(i)
+    clusters = frozenset(
+        frozenset(members) for label, members in groups.items() if label != -1
+    )
+    noise = frozenset(groups.get(-1, []))
+    return clusters, noise
+
+
+def test_backends_agree_on_well_separated_data() -> None:
+    """Both backends must find the SAME partition on unambiguous structure.
+
+    Seeded, well-separated blobs plus far-flung noise: any HDBSCAN
+    implementation worth calling a drop-in for another must recover exactly
+    these clusters. Failure here means the backends materially diverge and
+    the accelerator claim needs revisiting. Ambiguous, borderline data is
+    deliberately out of scope - implementations may legitimately differ there.
+    """
+    fast = pytest.importorskip("fast_hdbscan")
+    stock = pytest.importorskip("hdbscan")
+    import numpy as np
+
+    rng = np.random.default_rng(3759)
+    blobs = [rng.normal(loc, 0.05, size=(100, 4)) for loc in (0.0, 5.0, 10.0)]
+    noise = rng.uniform(20.0, 40.0, size=(7, 4))
+    X = np.vstack(blobs + [noise])
+
+    labels_fast = fast.HDBSCAN(min_cluster_size=25, min_samples=10).fit_predict(X)
+    labels_stock = stock.HDBSCAN(min_cluster_size=25, min_samples=10).fit_predict(X)
+
+    assert _partition(labels_fast) == _partition(labels_stock)
+    clusters, noise_set = _partition(labels_fast)
+    assert sorted(len(c) for c in clusters) == [100, 100, 100]
+    assert len(noise_set) == 7

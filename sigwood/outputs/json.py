@@ -105,6 +105,11 @@ class JsonHandler(OutputHandler):
             "data_size_bytes": run_summary.data_size_bytes,
             "detectors_run": run_summary.detectors_run,
             "detectors_skipped": run_summary.detectors_skipped,
+            # Detectors that started but crashed (prep or run) - {} on a clean
+            # run. A failed name remains in detectors_run (run = attempted);
+            # scheduled-run consumers alert on a non-empty dict (the process
+            # also exits nonzero). Additive field - no schema bump.
+            "detectors_failed": run_summary.detectors_failed,
             "notes": run_summary.notes,
             "data_sources": run_summary.data_sources,
             "detector_methods": {

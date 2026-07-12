@@ -6,6 +6,41 @@ All notable changes to sigwood are recorded here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- The curated `common` domain allowlist now ships its generic UUID-label rule disabled
+  (commented out). It suppressed any query embedding a UUID under any domain - a lexical
+  shape an exfil or beacon labeling scheme can simply choose - so it could drop hostile
+  queries before analysis. Devices that chatter with UUID labels are better suppressed by
+  their vendor apex; some users may see new DNS findings from such devices after
+  upgrading. The rule stays in the file, commented, for anyone who wants to re-enable it
+  knowingly.
+- A syslog burst finding without an observed reboot is no longer described as
+  "resembling a boot or batch event" - the neutral description states the cluster and
+  nothing more, and the reboot wording appears only on bursts a detected boot event
+  actually claimed.
+- TOML allowlist stanzas are now documented as what they do today - structured
+  suppression with a comment and per-detector scope - rather than as a classification
+  mechanism no shipped detector consumes yet. A stanza missing its `match` key (or a
+  stanza file that isn't valid TOML) now fails with an actionable message naming the
+  file instead of a raw `KeyError`.
+
+### Fixed
+
+- Pointing sigwood at a directory that holds a mix of log families no longer silently
+  drops the minority families: the run now says on stderr which family won the routing
+  vote and what was sampled, a detector skipped because the positional target routed
+  elsewhere now says so (instead of the misleading "not configured"), and `digest`
+  notes each directory it skips in a multi-file invocation instead of passing over it
+  without a word.
+- A detector that crashes mid-run no longer reads as a clean night. The run still
+  continues past the crash (sibling detectors' findings are unaffected), but the failure
+  is now disclosed everywhere a scheduled run looks: the process exits nonzero, the JSON
+  feed carries it under `run_summary.detectors_failed` (name → reason; empty `{}` on a
+  clean run), the HTML/PDF report header shows a failure row, and the text report ends
+  with a `failed:` line so a saved report is honest too. The FAQ's cron alerting recipe
+  now pages on failed detectors as well as findings.
+
 ## [0.1.1] - 2026-07-11
 
 ### Changed

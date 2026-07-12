@@ -61,8 +61,14 @@ re:\.arpa$                                                                  # ar
 re:\.local$                                                                 # mdns_local
 re:^_                                                                       # mdns_service
 
-# --- UUID labels (e.g. device beacons) ------------------------------------
-re:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}             # uuid
+# --- UUID labels (ships OFF - commented deliberately) ---------------------
+# A generic UUID-label rule is DISABLED by default. Unlike the apex /
+# infrastructure scoping used everywhere else in this list, it suppresses by
+# how a label LOOKS - exactly what an exfil or beacon scheme can choose - so a
+# UUID catch-all can drop hostile queries before analysis. Prefer suppressing a
+# chatty UUID-labeled device by its vendor apex. Uncomment the next line only
+# if you understand that tradeoff (kept here so it is easy to toggle on/off).
+# re:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}            # uuid
 
 # --- NTP ------------------------------------------------------------------
 re:pool\.ntp\.org$|\.ntp\.org$                                             # ntp

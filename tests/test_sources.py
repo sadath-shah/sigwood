@@ -720,3 +720,48 @@ def test_digest_schema_source_keyspaces_agree() -> None:
     legal = {(s, k) for s, ks in _DIGEST_CANDIDATES.items() for k in ks}
     assert set(_DIGEST_FEED) == legal
     assert set(_DIGEST_PATTERN_AND_EMPTY) == legal
+
+
+def test_router_mixed_directory_records_vote_tally(tmp_path: Path) -> None:
+    """A directory sample holding more than one recognizable family records
+    the full tally in the caller-owned sink - the caller discloses that the
+    losing family's files are not hunted as their own kind."""
+    log_dir = tmp_path / "mixed"
+    log_dir.mkdir()
+    for i in (1, 2):
+        (log_dir / f"conn.{i}.log").write_text(
+            '{"_path":"conn","ts":1779750000.0,"uid":"C1",'
+            '"id.orig_h":"192.0.2.10","id.resp_h":"198.51.100.20",'
+            '"id.resp_p":443,"proto":"tcp"}\n',
+            encoding="utf-8",
+        )
+    (log_dir / "messages").write_text(
+        "<134>Jun 11 12:00:00 host1 sshd[1234]: Accepted publickey for user\n",
+        encoding="utf-8",
+    )
+
+    sink: dict[str, dict[str, int]] = {}
+    routed = route_positional_source(
+        log_dir, detector_module=None, _vote_sink=sink,
+    )
+
+    assert routed == "zeek_dir"
+    assert sink == {str(log_dir): {"zeek": 2, "syslog": 1}}
+
+
+def test_router_single_family_directory_records_no_tally(tmp_path: Path) -> None:
+    """A single-family sample is not "mixed" - the sink stays empty."""
+    log_dir = tmp_path / "logs"
+    log_dir.mkdir()
+    (log_dir / "conn.log").write_text(
+        '{"_path":"conn","ts":1779750000.0,"uid":"C1",'
+        '"id.orig_h":"192.0.2.10","id.resp_h":"198.51.100.20",'
+        '"id.resp_p":443,"proto":"tcp"}\n',
+        encoding="utf-8",
+    )
+
+    sink: dict[str, dict[str, int]] = {}
+    assert route_positional_source(
+        log_dir, detector_module=None, _vote_sink=sink,
+    ) == "zeek_dir"
+    assert sink == {}

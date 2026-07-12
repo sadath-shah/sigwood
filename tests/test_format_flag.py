@@ -15,9 +15,9 @@ import sigwood.common.config as cfg
 _CONN = """\
 #separator \\x09
 #path\tconn
-#fields\tts\tuid\tid.orig_h\tid.orig_p\tid.resp_h\tid.resp_p\tproto\tduration\torig_bytes
-#types\ttime\tstring\taddr\tport\taddr\tport\tenum\tinterval\tcount
-1717243200.0\tC1\t192.0.2.10\t1234\t192.0.2.20\t443\ttcp\t0.5\t100
+#fields\tts\tuid\tid.orig_h\tid.orig_p\tid.resp_h\tid.resp_p\tproto\tduration\torig_bytes\tconn_state
+#types\ttime\tstring\taddr\tport\taddr\tport\tenum\tinterval\tcount\tstring
+1717243200.0\tC1\t192.0.2.10\t1234\t192.0.2.20\t443\ttcp\t0.5\t100\tSF
 """
 
 

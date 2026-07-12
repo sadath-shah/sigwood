@@ -76,6 +76,22 @@ findings come entirely from the per-label suspicion score, not from cluster shap
 `dns (fast-HDBSCAN)` method label names the clustering backend that ran even when it formed no
 clusters, so on a small capture the lexical score is doing the work.
 
+**A fast sequence of rare events folds into one low-severity burst.** Three or more
+rare log lines within about a minute on one host collapse into a single INFO "burst"
+finding rather than individual MEDIUM findings - that grouping catches boot storms and
+batch jobs, but it also catches an attacker working quickly. Nothing is dropped: the
+burst carries the line count, time span, program mix, and sampled lines. Treat burst
+findings as worth a skim rather than reading INFO as ignorable; the collapse is tunable
+(`burst_min_size`, `burst_gap_seconds` under `[detectors.syslog]`) if you'd rather see
+tight clusters as individual findings.
+
+**With both Zeek DNS and Pi-hole configured, Pi-hole is enrichment only.** In
+both-source mode Zeek is the clustering source and Pi-hole data enriches those
+findings with the block disposition; queries that appear only in the Pi-hole log
+(clients whose DNS never crosses the Zeek sensor's view) are not separately
+clustered on that run. Point sigwood at the Pi-hole log alone to cluster it in its
+own right.
+
 **Repeated reboots are caught every time, with a few grouping edges.** sigwood detects
 reboot signals across the whole log regardless of how rare they are, so a machine that
 reboots repeatedly is flagged on every boot, not just its first. Three grouping edges are
@@ -94,6 +110,31 @@ rotates once a day, events written since midnight - which live only in the live
 window. An explicit `--since` with no `--until` includes them, and `--all` reads the
 whole archive.
 
+**Syslog and Pi-hole timestamps carry no year and no timezone, so sigwood infers
+both.** The RFC 3164 / dnsmasq wall-clock format simply doesn't record them. sigwood
+stamps each line with the analysis machine's current year (rolling back one year only
+when that would place it more than a week in the future - a stamp a few hours or days
+ahead stays future-dated in the current year) and reads the time in the analysis
+machine's local timezone before converting to UTC. Two consequences: a syslog archive more than a year
+old is silently re-dated into the last twelve months, and a log written on a host in a
+different timezone (shipped or exported logs) stays offset by the timezone difference -
+and those shifted dates flow into window filtering, digest timelines, and finding data
+windows looking confident. Zeek (epoch) and CloudTrail (zoned ISO-8601) are unaffected.
+Analyze wall-clock logs on a machine in the log's own timezone, and treat dates on
+year-old syslog archives with suspicion; a per-source timezone setting is on the list
+if a real deployment needs it.
+
+**A directory positional is hunted as one log family.** When you pass a directory to
+`sigwood hunt` (or to `dns`/`syslog`, the two-source detectors), sigwood samples up to
+32 files, takes a majority vote on what family the directory is (Zeek, syslog, Pi-hole,
+CloudTrail), and hunts it as that family - files of a losing family in the same
+directory aren't hunted as their own kind on that run (sigwood says so at run time when
+the sample is mixed). The other single-detector verbs (`beacon`, `scan`, `duration`,
+`aws`) don't sample at all: the verb itself decides the family, with no mixed-content
+notice. A parent directory whose log families live in subdirectories (`case/zeek/`,
+`case/pihole/`) isn't recursively inventoried either. Pass the files themselves, one
+directory per family, or set the per-family source dirs in config.
+
 **zstd-compressed logs aren't supported yet.** sigwood transparently reads `.gz`,
 `.bz2`, and `.xz`. `.zst` needs a decoder that isn't in the Python standard library
 before 3.14, so it's deferred for now - decompress those files first.
@@ -104,7 +145,9 @@ opens, not the total on disk - a ~560 MB `conn.log` peaked near 6 GB in one meas
 default window keeps a live directory from being read end to end, but one very large file, or
 `--all` over a big archive, can exhaust a small box before the run finishes. Narrow the window
 (`--since`/`--days`), point at a single file, or run where there's headroom; streaming
-ingestion for the large-single-file case is on the list.
+ingestion for the large-single-file case is on the list. The install has real weight too:
+the scientific-Python stack underneath (pandas, numpy, the clustering backend) puts a fresh
+virtualenv at roughly 450 MB on disk - light to operate, not light to install.
 
 ## Digest and output
 
