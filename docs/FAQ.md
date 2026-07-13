@@ -71,6 +71,21 @@ It's sonar, not an X-ray machine: it tells you what's there so you know where to
 detectors. (It also reads your data *before* the allowlist, because everything in the file
 is part of "what's in here.")
 
+### What's the `graph` verb for?
+
+`graph` (`sigwood graph <path>`) is the third way to look at a log, alongside the hunt and
+`digest`. It writes a self-contained HTML file that *replays* the log's flows as an animated
+Sankey - clients, the domains or services they reached, and, for Pi-hole, what happened to each
+query. Think of the three as orient, see, analyze: `digest` tells you what's in a file, `graph`
+lets you watch it move, and the hunt tells you what stands out.
+
+It is deliberately a **replay, not a monitor** - it plays back a saved record and never tails a
+live one, so it keeps sigwood daemon-free and dashboard-free. Like `digest` it reads *before*
+the allowlist and renders facts rather than verdicts: it shows you a flow, never a label like
+"exfil" or "suspicious." The artifact is one file with no external resources and no network
+calls, and it ends with the exact `sigwood hunt` command for the same log - so a graph is a
+hook into the hunt, not a replacement for it.
+
 ### What log sources can it read?
 
 Zeek (`conn.log`, `dns.log`, `syslog.log`, in NDJSON or TSV, flat or date-partitioned

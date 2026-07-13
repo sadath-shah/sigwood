@@ -231,6 +231,7 @@ def build_payload(
     default_window_note: str | None,
     count_by: Literal["size", "weight"] = "size",
     row_count: int | None = None,
+    window: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     """Build the common graph payload from a prepared canonical frame.
 
@@ -267,9 +268,22 @@ def build_payload(
 
     t0 = float(df["ts"].min())
     t1 = float(df["ts"].max())
+    if window is not None:
+        try:
+            raw_t0, raw_t1 = window
+        except (TypeError, ValueError):
+            raw_t0 = raw_t1 = None
+        window_t0 = _coerce_timestamp(raw_t0)
+        window_t1 = _coerce_timestamp(raw_t1)
+        if window_t0 is not None and window_t1 is not None:
+            t0 = min(t0, window_t0, window_t1)
+            t1 = max(t1, window_t0, window_t1)
     bin_seconds = pick_bin_seconds(t1 - t0, config["target_bins"])
     df["bin"] = ((df["ts"] - t0) // bin_seconds).astype(int)
-    bins = int(df["bin"].max()) + 1
+    bins = max(
+        int(df["bin"].max()) + 1,
+        math.floor((t1 - t0) / bin_seconds) + 1,
+    )
 
     keep_src = _top_values(df, "src", config["top_hosts"])
     keep_dst = _top_values(df, "dst", config["top_hosts"])
@@ -379,6 +393,7 @@ def build_payload(
     )
 
     payload_meta_extra = dict(meta)
+    payload_meta_extra.pop("hunt_hint", None)
     payload_meta = {
         "source": _clean_label(source_label),
         "rows": int(len(df) if row_count is None else row_count),
@@ -393,6 +408,7 @@ def build_payload(
         "display_utc": bool(payload_meta_extra.pop("display_utc", False)),
         "default_window_note": default_window_note,
         **payload_meta_extra,
+        "hunt_hint": None,
     }
     return {
         "meta": payload_meta,
@@ -424,3 +440,11 @@ def build_payload(
         ],
         "hostsSeen": [int(value) for value in hosts_seen],
     }
+
+
+def attach_hunt_hint(payload: dict[str, Any], hint: str | None) -> None:
+    """Attach one runner-composed hunt hint to an existing graph payload."""
+    assert "meta" in payload and "hunt_hint" in payload["meta"]
+    if hint is None:
+        return
+    payload["meta"]["hunt_hint"] = strip_control(hint)

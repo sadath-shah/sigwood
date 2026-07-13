@@ -17,7 +17,7 @@ box, over logs at rest.
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
 
 > **Status: early / pre-1.0 (`0.1.1`).** The six detectors work and are covered by tests,
-> but interfaces may still move before 1.0. Feedback is welcome.
+> but things may well change before 1.0. Feedback is welcome.
 
 <p align="center">
   <b><a href="#quick-start">Install</a></b> ·
@@ -66,6 +66,7 @@ The usual invocations:
 
 ```bash
 sigwood digest /var/log/messages     # orient first - a fast, factual profile of a file
+sigwood graph /opt/zeek              # replay the flows as a self-contained HTML artifact
 sigwood syslog /var/log              # run a single detector
 sigwood init                         # detection-driven setup, writes a config
 sigwood hunt                         # hunt across everything enabled in your config
@@ -171,7 +172,7 @@ sigwood --all ~/zeek                 # the entire archive
 
 CloudTrail opts out of the default window - novelty detection needs full history, so it always
 loads in full unless you narrow it explicitly. Times render in your local timezone (labeled as
-such); pass `--utc` or set `use_utc = true` for UTC. `json` output is always ISO-8601 UTC.
+such); pass `--utc` or set `use_utc = true` for UTC. `json` output is always UTC.
 
 ## Orient before the hunt: `digest`
 
@@ -189,6 +190,37 @@ scale-anchored histogram, and a handful of plain-language insights ("one client 
 because everything in the file is part of "what's in here." The blob profiler samples a big
 file rather than reading it, so a one-gigabyte mystery file costs the same as a one-kilobyte
 one.
+
+## See your logs: `graph`
+
+```bash
+sigwood graph /opt/zeek                       # a Zeek dir → a conn graph and a dns graph
+sigwood graph /var/log/pihole/pihole.log      # a Pi-hole box → clients, domains, dispositions
+sigwood graph --pihole-dir=/var/log/pihole    # same, from your configured directory
+sigwood graph dns.log --out=~/graphs/         # choose where the artifact lands
+```
+
+`graph` builds a **self-contained HTML artifact** - one file, no server, no
+external resources, no network calls - that *replays* the flows in a log as an
+animated Sankey: who talked to whom, over the window, with time, speed, and filter
+controls. Watch the flows form and dissolve and you quickly get a sense of what's going
+on in the data.
+
+A Zeek directory produces two graphs - a **conn** graph (hosts vs the services
+they reach) and a **dns** graph (clients vs the domains they look up). Pi-hole
+adds a **disposition lane**: alongside the domains each client queried, you can
+switch on a column for what Pi-hole did with each query - `blocked`,
+`forwarded`, `cached`, or `local`. Like `digest`, `graph` reads *before* the
+allowlist, and it states facts, not verdicts: it shows you the fat ribbon
+leaving your database server at 3am, and lets you decide if that's your backup
+window or a nightmare exfil scenario. Every artifact includes the command to
+hunt the data being visualized, so the visual is a door into analysis, not a
+substitute.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/helixmap/sigwood/main/docs/img/graph.gif"
+       width="760" alt="sigwood graph replaying Pi-hole query flows - clients, domains, and dispositions over time, synthetic RFC 5737 / reserved-domain data">
+</p>
 
 ## Installation
 
@@ -210,10 +242,13 @@ pipx install sigwood
 sigwood --help
 ```
 
-Prefer [uv](https://docs.astral.sh/uv/)? `uv tool install sigwood` does the same job. A plain
-virtualenv also works (`python3 -m venv venv && venv/bin/pip install sigwood`; a minimal Debian
-may need `sudo apt install python3-venv` first). Avoid `sudo pip install` - it does not bypass
-PEP 668 and pollutes the system Python. Upgrade with `pipx upgrade sigwood`.
+Prefer [uv](https://docs.astral.sh/uv/)? `uv tool install sigwood` does the same
+job. A plain virtualenv also works (`python3 -m venv venv && venv/bin/pip
+install sigwood`; a minimal Debian may need `sudo apt install python3-venv`
+first). Avoid `sudo pip install` - it will pollute your system Python and nobody
+wants that.
+
+Upgrade with `pipx upgrade sigwood`.
 
 Optional extras (same spelling under pipx or pip):
 
@@ -224,11 +259,11 @@ pipx install 'sigwood[cloudtrail]'    # CloudTrail (S3) exporter
 pipx install 'sigwood[pdf]'           # PDF reports - opt-in, see note below
 ```
 
-A bare install needs no C compiler on the platforms people run this on. On 64-bit machines
-(x86-64, aarch64/arm64, including 64-bit Raspberry Pi OS) DNS clustering uses `fast-hdbscan`
-from pure wheels; on 32-bit ARM it uses stock `hdbscan` from piwheels. The **first** run on a
-small box takes a minute or two while the scientific stack warms up (cached on disk after
-that); every run after is fast.
+A bare install needs no C compiler on the platforms people run this on. On
+64-bit machines, DNS clustering uses `fast-hdbscan`; on 32-bit ARM it uses stock
+`hdbscan` which is a bit slower but still works fine. The **first** run on a
+small box takes a minute or two while the scientific stack warms up (cached on
+disk after that); every run after is fast.
 
 `[pdf]` is separate from `[all]` because PDF also needs native text libraries `pip` can't
 install - `brew install pango` on macOS, `apt install libpango-1.0-0` (or `dnf install pango`)
@@ -253,7 +288,7 @@ config without clobbering settings you already have, and shows a summary of what
 before it writes anything.
 
 Config is loaded from the first of: `--config=FILE`, then `~/.sigwood/config.toml`, then
-`/etc/sigwood/config.toml`. Everything sigwood owns lives under the hidden `~/.sigwood/` -
+`/etc/sigwood/config.toml`. Everything sigwood owns lives under `~/.sigwood/` -
 config, allowlists, exports, reports. A trimmed example:
 
 ```toml
@@ -265,14 +300,15 @@ syslog_dir = "/var/log"
 # cloudtrail_dir = "/var/log/cloudtrail"
 
 home_net       = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"]
-default_window = "7d"              # lookback for a directory; "" or "all" = full
+default_window = "7d"             # lookback for a directory; "" or "all" = full
 output_format  = "text"           # text | json | csv | html | pdf
 ```
 
-Findings print to your terminal by default - keep it pipeable. Set `report_dir` (or pass
-`--out=PATH`) to write report files instead. Every tunable a detector exposes is documented as
-a commented "engine room" at the bottom of the generated config (you rarely need it), and
-`sigwood <detector> --help` lists that command's flags.
+Findings print to your terminal by default - keep it pipeable. Set `report_dir`
+(or pass `--out=PATH`) to write report files instead. Every setting a detector
+has is documented in a commented "engine room" section at the bottom of the
+generated config (you rarely need to mess around in there). And `sigwood
+<detector> --help` lists that command's flags.
 
 ## Log sources it speaks
 
@@ -283,7 +319,7 @@ a commented "engine room" at the bottom of the generated config (you rarely need
   both the Debian convention (`syslog`, `auth.log`, `kern.log`) and the RHEL/Fedora one
   (extensionless `messages`, `secure`, `maillog`) - and won't mistake `dnf.log` or a binary like
   `wtmp` for a log stream.
-- **CloudTrail** - gzipped JSON event records, read locally or pulled from S3 (below).
+- **CloudTrail** - gzipped JSON event records, read locally or pulled from S3 (see exporters below).
 
 ## The allowlist
 

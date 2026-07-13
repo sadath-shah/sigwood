@@ -90,6 +90,11 @@ def build(
     if query_rows.empty:
         raise GraphEmpty("pihole", _clean_label(source_label), "no query rows")
 
+    evidence_window = (
+        float(rows["_graph_ts"].min()),
+        float(rows["_graph_ts"].max()),
+    )
+
     query_rows["_domain"] = query_rows["_raw_query"].map(
         lambda value: roll_domain(value, config["domain_level"]),
     )
@@ -118,6 +123,7 @@ def build(
         default_window_note=default_window_note,
         count_by="weight",
         row_count=len(query_rows),
+        window=evidence_window,
         meta={
             "kind": "pihole",
             "single_metric": True,

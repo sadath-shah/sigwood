@@ -12,7 +12,10 @@ Responsibilities:
 from __future__ import annotations
 
 import importlib
+import math
+import os
 import pkgutil
+import shlex
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -53,6 +56,7 @@ from sigwood.common.finding import DetectorContext, Finding, RunSummary
 from sigwood.common.output import OutputHandler, Reporter
 from sigwood.common.paths import unique_path
 from sigwood.common.sources import (
+    GraphKindSpec,
     resolve_digest_source,
     resolve_graph_source,
     resolve_sources,
@@ -1970,6 +1974,44 @@ def _graph_source_label(paths: Sequence[Path]) -> str:
     return ", ".join(strip_control(path.name) for path in paths)
 
 
+def _graph_hunt_hint(
+    payload: dict[str, Any],
+    *,
+    spec: GraphKindSpec,
+    source_inputs: Sequence[Path],
+    has_explicit_inputs: bool,
+) -> str | None:
+    """Compose one paste-safe hunt command for a graph artifact's exact frame."""
+    from sigwood.common import loader
+
+    if (
+        spec.source_key == "zeek_dir"
+        and has_explicit_inputs
+        and any(
+            path.is_file() and not loader._file_matches_pattern(path, spec.pattern)
+            for path in source_inputs
+        )
+    ):
+        return None
+
+    meta = payload["meta"]
+    since = math.floor(float(meta["t0"]))
+    until = math.ceil(float(meta["t1"]))
+    since_text = to_display_timezone(
+        datetime.fromtimestamp(since, tz=timezone.utc),
+    ).isoformat(timespec="seconds")
+    until_text = to_display_timezone(
+        datetime.fromtimestamp(until, tz=timezone.utc),
+    ).isoformat(timespec="seconds")
+    quoted_inputs = " ".join(
+        shlex.quote(os.path.abspath(path)) for path in source_inputs
+    )
+    return (
+        f"sigwood hunt {quoted_inputs} --since={since_text} "
+        f"--until={until_text}"
+    )
+
+
 def run_graph(
     config: dict[str, Any],
     *,
@@ -1996,7 +2038,7 @@ def run_graph(
     """
     from sigwood.common import loader
     from sigwood.graph import get_builder
-    from sigwood.graph._core import validate_config
+    from sigwood.graph._core import attach_hunt_hint, validate_config
     from sigwood.outputs.graph import render_graph_html
 
     validate_table_sections(config, ("sigwood", "graph"))
@@ -2112,6 +2154,15 @@ def run_graph(
             default_window_note=default_window_note,
             display_utc=use_utc,
         )
+    attach_hunt_hint(
+        payload,
+        _graph_hunt_hint(
+            payload,
+            spec=spec,
+            source_inputs=source_inputs,
+            has_explicit_inputs=has_explicit_inputs,
+        ),
+    )
     html = render_graph_html(payload)
 
     # Do not create a directory or touch an exact target until the loader,

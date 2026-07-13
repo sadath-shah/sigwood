@@ -13,6 +13,7 @@ from sigwood.graph import _core
 from sigwood.graph._core import (
     GRAPH_MAX_FLOWS,
     _assert_budgets,
+    attach_hunt_hint,
     build_payload,
     pick_bin_seconds,
     validate_config,
@@ -157,6 +158,7 @@ def test_conn_payload_keeps_null_metrics_as_zero_and_collapses_icmp() -> None:
         "generator": payload["meta"]["generator"],
         "display_utc": True,
         "default_window_note": "default 7d window applied",
+        "hunt_hint": None,
         "kind": "conn",
         "single_metric": False,
         "rows_label": "conns",
@@ -401,6 +403,73 @@ def test_build_payload_does_not_mutate_caller_metadata() -> None:
     assert meta == {"display_utc": True, "kind": "test"}
     assert payload["meta"]["display_utc"] is True
     _assert_budgets(_grouped(GRAPH_MAX_FLOWS), bins=1)
+
+
+def test_evidence_window_extends_bins_without_leaking_meta_overrides() -> None:
+    """An evidence-only tail reaches the player without inventing a data row."""
+    frame = pd.DataFrame({
+        "ts": [10.0],
+        "src": ["192.0.2.10"],
+        "dst": ["198.51.100.10"],
+        "svc": ["dns"],
+        "metric": [1],
+    })
+
+    payload = build_payload(
+        frame,
+        kind="test",
+        source_label="test.log",
+        config=_config(),
+        meta={"hunt_hint": "not a runner hint"},
+        default_window_note=None,
+        window=(10.0, 20.0),
+    )
+
+    assert payload["meta"]["t0"] == 10.0
+    assert payload["meta"]["t1"] == 20.0
+    assert payload["meta"]["bins"] * payload["meta"]["bin_seconds"] >= 10.0
+    assert payload["totB"][0] == 1
+    assert payload["totC"][0] == 1
+    assert all(value == 0 for value in payload["totB"][1:])
+    assert all(value == 0 for value in payload["totC"][1:])
+    assert payload["meta"]["hunt_hint"] is None
+
+
+def test_evidence_window_invalid_bounds_fall_back_to_frame_extrema() -> None:
+    """An invalid optional evidence window cannot disturb the existing frame."""
+    frame = pd.DataFrame({
+        "ts": [10.0, 11.0],
+        "src": ["192.0.2.10", "192.0.2.10"],
+        "dst": ["198.51.100.10", "198.51.100.10"],
+        "svc": ["dns", "dns"],
+        "metric": [1, 1],
+    })
+    baseline = build_payload(
+        frame, kind="test", source_label="test.log", config=_config(),
+        meta={}, default_window_note=None,
+    )
+    invalid = build_payload(
+        frame, kind="test", source_label="test.log", config=_config(),
+        meta={}, default_window_note=None, window=(math.nan, 20.0),
+    )
+
+    baseline["meta"].pop("generated_utc")
+    invalid["meta"].pop("generated_utc")
+    assert invalid == baseline
+
+
+def test_attach_hunt_hint_is_none_safe_and_owns_the_typed_slot() -> None:
+    """Only the post-build setter writes the control-cleaned hint field."""
+    payload = {"meta": {"hunt_hint": None}}
+
+    attach_hunt_hint(payload, None)
+    assert payload["meta"]["hunt_hint"] is None
+
+    attach_hunt_hint(payload, "sigwood hunt /tmp/a\x1b")
+    assert payload["meta"]["hunt_hint"] == "sigwood hunt /tmp/a"
+
+    with pytest.raises(AssertionError):
+        attach_hunt_hint({"meta": {}}, "sigwood hunt /tmp/a")
 
 
 def test_weighted_count_mode_preserves_fractional_query_mass() -> None:

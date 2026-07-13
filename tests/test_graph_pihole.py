@@ -83,6 +83,25 @@ def test_pihole_builder_keeps_three_way_fractional_shares_nonzero() -> None:
     assert all(value != 0 for flow in payload["flows"] for value in flow["c"][1::2])
 
 
+def test_pihole_evidence_window_includes_a_late_disposition_tail() -> None:
+    """The replay frame retains attribution evidence after the final query."""
+    rows = pd.DataFrame(
+        [
+            {"ts": 10.0, "src": "192.0.2.10", "query": "relay.example.test", "event_type": "query"},
+            {"ts": 20.0, "src": None, "query": "relay.example.test", "event_type": "forwarded"},
+        ]
+    )
+
+    payload = build(rows, config=validate_config({}), source_label="pihole.log")
+
+    assert payload["meta"]["t0"] == 10.0
+    assert payload["meta"]["t1"] == 20.0
+    assert payload["meta"]["bins"] * payload["meta"]["bin_seconds"] >= 10.0
+    assert _service_mass(payload) == pytest.approx({"forwarded": 1.0})
+    assert all(value == 0 for value in payload["totB"][1:])
+    assert all(value == 0 for value in payload["totC"][1:])
+
+
 def test_pihole_builder_excludes_blank_and_bad_time_queries_before_counting() -> None:
     """Invalid query identities never materialize as an unknown destination."""
     rows = pd.DataFrame(

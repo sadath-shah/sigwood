@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import shlex
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -14,11 +15,13 @@ import pytest
 
 import sigwood.cli as cli
 import sigwood.runner as runner
-from sigwood.common import sources
+from sigwood.common import loader, sources
 from sigwood.common.errors import GraphEmpty, GraphSourceUnreadable, UsageError
 from sigwood.common.loader import LoadResult, LoadWindow, PermissionSkipInfo
 from sigwood.common.sources import graph_kind_spec
 from sigwood.common.display import default_window_advisory
+from sigwood.graph._core import attach_hunt_hint, validate_config
+from sigwood.graph.pihole import build as build_pihole
 
 
 _CONN_LINE = (
@@ -93,6 +96,8 @@ def test_graph_arbitrary_named_sniffed_conn_file_writes_exact_html(
     html = target.read_text(encoding="utf-8")
     assert "const DATA = {" in html
     assert '"kind":"conn"' in html
+    payload = json.loads(html.split("const DATA = ", 1)[1].split(";</script>", 1)[0])
+    assert payload["meta"]["hunt_hint"] is None
     assert "__SIGWOOD_GRAPH_DATA__" not in html
 
 
@@ -131,7 +136,64 @@ def test_graph_pihole_positional_file_writes_a_disposition_artifact(
     assert payload["meta"]["kind"] == "pihole"
     assert payload["meta"]["rows"] == 1
     assert payload["svcNodes"] == ["cached"]
-    assert payload["totC"] == [1.0]
+    assert payload["totC"][0] == 1.0
+    assert all(value == 0.0 for value in payload["totC"][1:])
+    hint = payload["meta"]["hunt_hint"]
+    assert hint.startswith("sigwood hunt ")
+    assert str(source.absolute()) in hint
+    assert " --since=" in hint
+    assert " --until=" in hint
+
+    tokens = shlex.split(hint)
+    since = cli._parse_iso_date(tokens[-2].split("=", 1)[1], "--since")
+    until = cli._parse_iso_date(tokens[-1].split("=", 1)[1], "--until")
+    replayed = build_pihole(
+        loader.load_pihole(source, since=since, until=until, show_progress=False),
+        config=validate_config({}),
+        source_label=source.name,
+    )
+    assert replayed["svcNodes"] == payload["svcNodes"]
+
+
+def test_graph_hunt_hint_quotes_inputs_and_gates_unrediscoverable_zeek_files(
+    tmp_path: Path,
+) -> None:
+    """The footer command is paste-safe and never advertises a false Zeek replay."""
+    payload = {"meta": {"t0": 10.1, "t1": 20.1, "hunt_hint": None}}
+    hostile = tmp_path / "dir with space;$(touch no)\x1b" / "pihole.log"
+    hint = runner._graph_hunt_hint(
+        payload,
+        spec=graph_kind_spec("pihole"),
+        source_inputs=[hostile],
+        has_explicit_inputs=True,
+    )
+    assert hint is not None
+    assert "'" in hint
+    attach_hunt_hint(payload, hint)
+    rendered = payload["meta"]["hunt_hint"]
+    assert "\x1b" not in rendered
+    tokens = shlex.split(rendered)
+    assert tokens[:2] == ["sigwood", "hunt"]
+    assert tokens[2] == os.path.abspath(hostile).replace("\x1b", "")
+    assert all(datetime.fromisoformat(token.split("=", 1)[1]).tzinfo is not None for token in tokens[-2:])
+
+    odd = tmp_path / "captured-input"
+    odd.write_text(_CONN_LINE, encoding="utf-8")
+    assert runner._graph_hunt_hint(
+        payload,
+        spec=graph_kind_spec("conn"),
+        source_inputs=[odd],
+        has_explicit_inputs=True,
+    ) is None
+
+    matching = tmp_path / "conn.log"
+    matching.write_text(_CONN_LINE, encoding="utf-8")
+    assert runner._graph_hunt_hint(
+        payload,
+        spec=graph_kind_spec("conn"),
+        source_inputs=[matching],
+        has_explicit_inputs=True,
+    ) is not None
 
 
 def test_graph_pihole_dir_flag_and_bare_config_route_to_pihole(
