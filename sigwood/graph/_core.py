@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import pandas as pd
@@ -112,6 +112,17 @@ def _coerce_metric(value: object) -> float:
     return metric
 
 
+def _coerce_weight(value: object) -> float:
+    """Return one finite non-negative weighted-count contribution."""
+    try:
+        weight = float(value)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise _metric_error() from exc
+    if not math.isfinite(weight) or not 0 <= weight <= _FLOAT32_MAX:
+        raise _metric_error()
+    return weight
+
+
 def pick_bin_seconds(span_seconds: float, target_bins: int) -> int:
     """Choose a nice bin width while keeping the emitted bin count bounded."""
     span = max(float(span_seconds), 1.0)
@@ -188,10 +199,25 @@ def _assert_budgets(grouped: pd.DataFrame, bins: int) -> None:
         raise _budget_error()
 
 
-def _pairs(group: pd.DataFrame, field: str) -> list[int]:
-    pairs: list[int] = []
+def _payload_number(value: object, *, preserve_fraction: bool) -> int | float:
+    """Serialize one validated graph value without losing weighted mass."""
+    number = float(value)
+    if preserve_fraction:
+        return number
+    return int(round(number))
+
+
+def _pairs(
+    group: pd.DataFrame, field: str, *, preserve_fraction: bool,
+) -> list[int | float]:
+    pairs: list[int | float] = []
     for row in group.sort_values("bin", kind="stable").itertuples(index=False):
-        pairs.extend((int(row.bin), int(round(float(getattr(row, field))))))
+        pairs.extend((
+            int(row.bin),
+            _payload_number(
+                getattr(row, field), preserve_fraction=preserve_fraction,
+            ),
+        ))
     return pairs
 
 
@@ -203,6 +229,8 @@ def build_payload(
     config: dict[str, Any],
     meta: dict[str, Any],
     default_window_note: str | None,
+    count_by: Literal["size", "weight"] = "size",
+    row_count: int | None = None,
 ) -> dict[str, Any]:
     """Build the common graph payload from a prepared canonical frame.
 
@@ -212,6 +240,17 @@ def build_payload(
     sparse pair lists are allocated.
     """
     _require_columns(frame, {"ts", "src", "dst", "svc", "metric"}, kind)
+    if count_by not in {"size", "weight"}:
+        raise ValueError("graph count mode must be 'size' or 'weight'")
+    if (
+        row_count is not None
+        and (
+            isinstance(row_count, bool)
+            or not isinstance(row_count, int)
+            or row_count < 0
+        )
+    ):
+        raise ValueError("graph row count must be a non-negative integer")
     df = frame.copy()
     df["ts"] = df["ts"].map(_coerce_timestamp)
     finite_ts = df["ts"].notna()
@@ -219,7 +258,10 @@ def build_payload(
     if df.empty:
         raise GraphEmpty(kind, _clean_label(source_label), "no timestamped rows")
 
-    df["metric"] = df["metric"].map(_coerce_metric)
+    if count_by == "weight":
+        df["metric"] = df["metric"].map(_coerce_weight)
+    else:
+        df["metric"] = df["metric"].map(_coerce_metric)
     for column in ("src", "dst", "svc"):
         df[column] = df[column].map(_clean_label)
 
@@ -236,9 +278,10 @@ def build_payload(
     df["d"] = df["dst"].where(df["dst"].isin(keep_dst), _OTHER)
     df["v"] = df["svc"].where(df["svc"].isin(keep_svc), _OTHER)
 
+    count_aggregation = "sum" if count_by == "weight" else "size"
     grouped = (
         df.groupby(["s", "d", "v", "bin"], sort=False)
-        .agg(b=("metric", "sum"), c=("metric", "size"))
+        .agg(b=("metric", "sum"), c=("metric", count_aggregation))
         .reset_index()
     )
     if (
@@ -304,14 +347,15 @@ def build_payload(
     dst_index = {value: index for index, value in enumerate(dst_nodes)}
     svc_index = {value: index for index, value in enumerate(svc_nodes)}
     flows: list[dict[str, Any]] = []
+    preserve_fraction = count_by == "weight"
     for (src, dst, svc), group in grouped.groupby(["s", "d", "v"], sort=False):
         flows.append(
             {
                 "s": src_index[str(src)],
                 "d": dst_index[str(dst)],
                 "v": svc_index[str(svc)],
-                "b": _pairs(group, "b"),
-                "c": _pairs(group, "c"),
+                "b": _pairs(group, "b", preserve_fraction=preserve_fraction),
+                "c": _pairs(group, "c", preserve_fraction=preserve_fraction),
             }
         )
     flows.sort(key=lambda flow: (-sum(flow["b"][1::2]), flow["s"], flow["d"], flow["v"]))
@@ -330,12 +374,14 @@ def build_payload(
         .sort_index()
         .cumsum()
     )
-    totals_c = df.groupby("bin", sort=False).size().reindex(range(bins), fill_value=0)
+    totals_c = grouped.groupby("bin", sort=False)["c"].sum().reindex(
+        range(bins), fill_value=0,
+    )
 
     payload_meta_extra = dict(meta)
     payload_meta = {
         "source": _clean_label(source_label),
-        "rows": int(len(df)),
+        "rows": int(len(df) if row_count is None else row_count),
         "t0": t0,
         "t1": t1,
         "bin_seconds": int(bin_seconds),
@@ -368,7 +414,13 @@ def build_payload(
         ],
         "svcNodes": svc_nodes,
         "flows": flows,
-        "totB": [int(round(float(value))) for value in totals_b],
-        "totC": [int(value) for value in totals_c],
+        "totB": [
+            _payload_number(value, preserve_fraction=preserve_fraction)
+            for value in totals_b
+        ],
+        "totC": [
+            _payload_number(value, preserve_fraction=preserve_fraction)
+            for value in totals_c
+        ],
         "hostsSeen": [int(value) for value in hosts_seen],
     }

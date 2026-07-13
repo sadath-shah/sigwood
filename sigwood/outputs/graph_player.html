@@ -776,7 +776,12 @@ function drawTimeline() {
 /* ---------- formats ---------- */
 const fmtB = n => n < 1024 ? `${Math.round(n)} B` : n < 1048576 ? `${(n/1024).toFixed(1)} KB`
   : n < 1073741824 ? `${(n/1048576).toFixed(1)} MB` : `${(n/1073741824).toFixed(2)} GB`;
-const fmtN = n => Math.round(n).toLocaleString("en-US");
+const fmtN = n => {
+  if (n === 0) return "0";
+  if (n > 0 && n < 0.1) return "<0.1";
+  if (Number.isInteger(n)) return Math.round(n).toLocaleString("en-US");
+  return n.toFixed(1);
+};
 const two = n => String(n).padStart(2, "0");
 const TZ_LABEL = (() => {
   if (M.display_utc) return "UTC";
@@ -810,7 +815,7 @@ function stats(now) {
   }
   $("st-rate").textContent = fmtB(rB / BIN) + "/s";
   const cps = rC / BIN;
-  $("st-cps").textContent = cps >= 10 ? fmtN(cps) : cps.toFixed(1);
+  $("st-cps").textContent = fmtN(cps);
   // odometer tiles read the FILTERED cumulative sums (equal to the raw sums
   // when no filter is active), so every aggregate surface shares one basis
   const i0 = Math.min(Math.floor(t), B - 1), fr = t - i0;
@@ -891,7 +896,7 @@ function updateRank(now) {
     }
     row.querySelector(".sw").style.background = e.color;
     row.querySelector(".rt").textContent =
-      metric === "b" ? fmtB(e.v / BIN) + "/s" : (e.v / BIN).toFixed(1) + "/s";
+      metric === "b" ? fmtB(e.v / BIN) + "/s" : fmtN(e.v / BIN) + "/s";
     row.style.transform = `translateY(${idx * ROWH}px)`;
     row.classList.toggle("excluded", exSet.has(id));
     row.classList.toggle("only", onSet.has(id));
@@ -948,8 +953,8 @@ function downloadClip() {
     const db = rawDenseB[i], dc = rawDenseC[i];
     const pb = [], pc = [];
     for (let x = a; x < b; x++) {
-      if (db[x]) { pb.push(x - a, Math.round(db[x])); ntotB[x-a] += db[x]; }
-      if (dc[x]) { pc.push(x - a, Math.round(dc[x])); ntotC[x-a] += dc[x]; }
+      if (db[x]) { pb.push(x - a, db[x]); ntotB[x-a] += db[x]; }
+      if (dc[x]) { pc.push(x - a, dc[x]); ntotC[x-a] += dc[x]; }
     }
     if (!pb.length && !pc.length) return;
     flows.push({ s: f.s, d: f.d, v: f.v, b: pb, c: pc });
@@ -974,7 +979,7 @@ function downloadClip() {
   const payload = {
     meta: { ...M,
       source: (M.source || "").replace(/ · clip$/, "") + " · clip",
-      rows: Math.round(rows), clip: true,
+      rows, clip: true,
       t0: M.t0 + a * BIN, t1: Math.min(M.t1, M.t0 + b * BIN), bins: nb,
       distinct_hosts: null,
       generated_utc: new Date().toISOString().slice(0, 16).replace("T", " ") + " UTC",
@@ -983,7 +988,7 @@ function downloadClip() {
     dstNodes: dKeep.map(o => RAW.DST[o]),
     svcNodes: RAW.SVC,
     flows,
-    totB: [...ntotB].map(Math.round), totC: [...ntotC].map(Math.round),
+    totB: [...ntotB], totC: [...ntotC],
     hostsSeen: null,   // pre-fold host census can't be re-derived client-side
   };
   const blob = JSON.stringify(payload).replace(/</g, "\\u003c");
@@ -1081,7 +1086,7 @@ function setTip(lines, x, y) {
   tip.style.top = Math.min(y + 14, innerHeight - r.height - 8) + "px";
 }
 function tipFor(h, ev) {
-  const g = geom, rate = v => (metric === "b" ? fmtB(v / BIN) + "/s" : (v / BIN).toFixed(2) + "/s");
+  const g = geom, rate = v => (metric === "b" ? fmtB(v / BIN) + "/s" : fmtN(v / BIN) + "/s");
   if (h.kind === "flow") {
     const f = FLOWS[h.i];
     setTip([`${SRC[f.s].id} → ${DST[f.d].id}`, SVC[f.v], rate(g.fv[h.i])], ev.clientX, ev.clientY);

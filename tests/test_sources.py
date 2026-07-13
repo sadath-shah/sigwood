@@ -237,10 +237,11 @@ def test_router_unrecognized_content_falls_back_to_first_optional(tmp_path: Path
 
 
 def test_graph_kinds_are_ordered_declarations() -> None:
-    """Graph advertises conn and Zeek dns in deterministic order."""
+    """Graph advertises conn, Zeek dns, and pihole in deterministic order."""
     assert GRAPH_KINDS == (
         GraphKindSpec("conn", "zeek_dir", "conn*.log*", "conn", "zeek"),
         GraphKindSpec("dns", "zeek_dir", "dns*.log*", "dns", "zeek"),
+        GraphKindSpec("pihole", "pihole_dir", "pihole*.log*", "dns", "pihole"),
     )
 
 
@@ -249,7 +250,7 @@ def test_graph_kinds_are_ordered_declarations() -> None:
     [
         ("conn", "zeek", "conn"),
         ("dns", "zeek", "dns"),
-        ("dns", "pihole", None),
+        ("dns", "pihole", "pihole"),
         ("syslog", "zeek", None),
         (None, None, None),
     ],
@@ -308,6 +309,7 @@ def test_discover_graph_kinds_keeps_only_nonempty_buckets(
     assert calls == [
         ("zeek_dir", tmp_path, "conn*.log*"),
         ("zeek_dir", tmp_path, "dns*.log*"),
+        ("pihole_dir", tmp_path, "pihole*.log*"),
     ]
 
 
@@ -353,6 +355,38 @@ def test_graph_buckets_directory_fans_out_and_keeps_directory_input(
 
     assert buckets == {"conn": [source], "dns": [source]}
     assert mixed == {str(source): ("conn", "dns")}
+
+
+def test_graph_source_override_keeps_a_pihole_directory_in_its_family(
+    tmp_path: Path,
+) -> None:
+    """A declared pihole source cannot expand into the Zeek graph kinds."""
+    source = tmp_path / "pihole"
+    source.mkdir()
+    (source / "pihole.log").write_text(
+        "Jun  1 12:00:00 dnsmasq[1]: query[A] portal.example.com from 192.0.2.10\n",
+        encoding="utf-8",
+    )
+
+    probe = probe_graph_inputs(
+        {"sigwood": {}}, source_overrides={"pihole_dir": source},
+    )
+
+    assert probe.buckets == {"pihole": [source]}
+
+
+def test_graph_source_override_keeps_an_empty_pihole_directory_clean(
+    tmp_path: Path,
+) -> None:
+    """An empty declared pihole source produces its one clean-empty bucket."""
+    source = tmp_path / "pihole"
+    source.mkdir()
+
+    probe = probe_graph_inputs(
+        {"sigwood": {}}, source_overrides={"pihole_dir": source},
+    )
+
+    assert probe.buckets == {"pihole": [source]}
 
 
 def test_graph_probe_keeps_a_valid_file_when_a_sibling_cannot_be_read(

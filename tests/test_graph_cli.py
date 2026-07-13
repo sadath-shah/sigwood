@@ -34,10 +34,17 @@ _DNS_LINE = (
 _SYSLOG_LINE = (
     "Jun 11 12:00:00 host1 sshd[1234]: Accepted publickey for operator\n"
 )
+_PIHOLE_LINES = (
+    "Jun  1 12:00:00 dnsmasq[1]: query[A] ads.example.com from 192.0.2.10\n"
+    "Jun  1 12:00:01 dnsmasq[1]: cached ads.example.com is 203.0.113.20\n"
+)
 
 
 def _config(
-    *, zeek_dir: Path | None = None, report_dir: str | None = None,
+    *,
+    zeek_dir: Path | None = None,
+    pihole_dir: Path | None = None,
+    report_dir: str | None = None,
 ) -> dict[str, Any]:
     sigwood: dict[str, Any] = {
         "default_window": "all",
@@ -45,6 +52,8 @@ def _config(
     }
     if zeek_dir is not None:
         sigwood["zeek_dir"] = str(zeek_dir)
+    if pihole_dir is not None:
+        sigwood["pihole_dir"] = str(pihole_dir)
     if report_dir is not None:
         sigwood["report_dir"] = report_dir
     return {"sigwood": sigwood, "graph": {}}
@@ -59,6 +68,13 @@ def _two_kind_directory(tmp_path: Path) -> Path:
     source.mkdir()
     (source / "conn.log").write_text(_CONN_LINE, encoding="utf-8")
     (source / "dns.log").write_text(_DNS_LINE, encoding="utf-8")
+    return source
+
+
+def _pihole_directory(tmp_path: Path) -> Path:
+    source = tmp_path / "pihole"
+    source.mkdir()
+    (source / "pihole.log").write_text(_PIHOLE_LINES, encoding="utf-8")
     return source
 
 
@@ -96,6 +112,89 @@ def test_graph_directory_fans_out_conn_and_dns_to_report_dir(
     assert len(names) == 2
     assert any(name.startswith("sigwood-graph_conn_") for name in names)
     assert any(name.startswith("sigwood-graph_dns_") for name in names)
+
+
+def test_graph_pihole_positional_file_writes_a_disposition_artifact(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A sniffed Pi-hole file selects its own graph builder and payload kind."""
+    source = tmp_path / "captured-pihole"
+    source.write_text(_PIHOLE_LINES, encoding="utf-8")
+    target = tmp_path / "pihole.html"
+    _stub_config(monkeypatch, _config())
+
+    assert cli._main(["graph", "--all", "-q", f"--out={target}", str(source)]) == 0
+
+    payload = json.loads(target.read_text(encoding="utf-8").split("const DATA = ", 1)[1].split(
+        ";</script>", 1,
+    )[0])
+    assert payload["meta"]["kind"] == "pihole"
+    assert payload["meta"]["rows"] == 1
+    assert payload["svcNodes"] == ["cached"]
+    assert payload["totC"] == [1.0]
+
+
+def test_graph_pihole_dir_flag_and_bare_config_route_to_pihole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The declared pihole flag and config fallback both produce one artifact."""
+    source = _pihole_directory(tmp_path)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    _stub_config(monkeypatch, _config(report_dir=str(reports)))
+
+    assert cli._main(["graph", "--all", "-q", f"--pihole-dir={source}"]) == 0
+    assert len(list(reports.glob("sigwood-graph_pihole_*.html"))) == 1
+
+    for path in reports.glob("*.html"):
+        path.unlink()
+    _stub_config(monkeypatch, _config(pihole_dir=source, report_dir=str(reports)))
+    assert cli._main(["graph", "--all", "-q"]) == 0
+    assert len(list(reports.glob("sigwood-graph_pihole_*.html"))) == 1
+
+
+@pytest.mark.parametrize("flag", ["--zeek-dir", "--pihole-dir"])
+def test_graph_rejects_each_source_flag_with_a_positional(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, flag: str,
+) -> None:
+    """A family declaration cannot be mixed with a content-sniffed positional."""
+    source = _pihole_directory(tmp_path)
+    _stub_config(monkeypatch, _config())
+
+    with pytest.raises(UsageError, match="not valid alongside a positional PATH"):
+        cli._main(["graph", f"{flag}={source}", str(source / "pihole.log")])
+
+
+def test_graph_two_source_flags_fan_out_only_their_declared_families(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Zeek and Pi-hole declarations reach conn/dns and pihole respectively."""
+    zeek = _two_kind_directory(tmp_path)
+    pihole = _pihole_directory(tmp_path)
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    _stub_config(monkeypatch, _config(report_dir=str(reports)))
+
+    assert cli._main([
+        "graph", "--all", "-q", f"--zeek-dir={zeek}", f"--pihole-dir={pihole}",
+    ]) == 0
+
+    names = {path.name.split("_", 2)[1] for path in reports.glob("*.html")}
+    assert names == {"conn", "dns", "pihole"}
+
+
+def test_graph_wrong_family_flag_is_a_clean_empty_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A declared Zeek source does not content-route Pi-hole files to pihole."""
+    source = _pihole_directory(tmp_path)
+    _stub_config(monkeypatch, _config())
+
+    assert cli._main(["graph", "--all", "-q", f"--zeek-dir={source}"]) == 0
+
+    captured = capsys.readouterr()
+    assert "as pihole" not in captured.err.lower()
+    assert "conn" in captured.err and "dns" in captured.err
 
 
 def test_graph_dry_run_plans_all_buckets_without_creating_target(
@@ -698,3 +797,56 @@ def test_run_graph_sets_default_window_metadata_only_from_resolver_result(
     blob = stream.getvalue().split("const DATA = ", 1)[1].split(";</script>", 1)[0]
     assert json.loads(blob)["meta"]["default_window_note"] == default_window_advisory("7d")
     assert applied
+
+
+def test_run_graph_pihole_skips_implicit_window_but_keeps_explicit_timeframe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pihole follows the full-load default with explicit windows still passed on."""
+    source = tmp_path / "pihole.log"
+    source.write_text("placeholder\n", encoding="utf-8")
+    frame = pd.DataFrame({
+        "ts": [1779750000.0],
+        "src": ["192.0.2.10"],
+        "query": ["portal.example.com"],
+        "event_type": ["query"],
+    })
+    result = LoadResult(
+        logs={"pihole*.log*": frame}, record_counts={"pihole*.log*": 1},
+    )
+    from sigwood.common import loader
+
+    def _no_default(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("pihole must not resolve an implicit graph window")
+
+    calls: list[tuple[object, ...]] = []
+
+    def _load(*args: object, **_kwargs: object) -> LoadResult:
+        calls.append(args)
+        return result
+
+    monkeypatch.setattr(loader, "resolve_load_windows", _no_default)
+    monkeypatch.setattr(loader, "load_required_logs", _load)
+    config = _config()
+    config["sigwood"]["default_window"] = "7d"
+
+    stream = io.StringIO()
+    runner.run_graph(config, kind="pihole", inputs=source, stream=stream, quiet=True)
+    first = json.loads(stream.getvalue().split("const DATA = ", 1)[1].split(
+        ";</script>", 1,
+    )[0])
+    assert first["meta"]["default_window_note"] is None
+    assert calls[0][2:4] == (None, None)
+
+    since = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    until = datetime(2026, 1, 2, tzinfo=timezone.utc)
+    runner.run_graph(
+        config,
+        kind="pihole",
+        inputs=source,
+        since=since,
+        until=until,
+        stream=io.StringIO(),
+        quiet=True,
+    )
+    assert calls[1][2:4] == (since, until)

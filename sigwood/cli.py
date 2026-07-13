@@ -7,7 +7,7 @@ Dispatch table:
   sigwood PATH ...                   shorthand - point it at one or more log files
   sigwood beacon|dns|syslog|...      run a single detector
   sigwood digest [PATH ...]          orient-before-the-hunt card (sniff-driven)
-  sigwood graph [PATH ...]           replay-oriented conn/DNS graph artifact
+  sigwood graph [PATH ...]           replay-oriented conn/DNS/Pi-hole graph artifact
   sigwood export                     pull logs from external systems
   sigwood init                       first-run setup wizard
 
@@ -145,7 +145,7 @@ _DIGEST_ALLOWED: frozenset[str] = frozenset({
 })
 _GRAPH_ALLOWED: frozenset[str] = frozenset({
     "help", "yes", "all", "quiet", "out", "config", "since", "dry_run",
-    "until", "days", "hours", "utc", "zeek_dir",
+    "until", "days", "hours", "utc", "zeek_dir", "pihole_dir",
 })
 _EXPORT_ALLOWED: frozenset[str] = frozenset({
     "help", "verbose", "yes", "out", "config", "since", "until", "days", "hours",
@@ -172,7 +172,7 @@ _VERBS: dict[str, VerbSpec] = {
                          "[PATH]", _SINGLE_DET_ALLOWED),
     "digest":   VerbSpec("digest",   "orient-before-the-hunt card (schema sniffed)",
                          "[PATH ...]", _DIGEST_ALLOWED),
-    "graph":    VerbSpec("graph",    "replay-oriented conn/DNS HTML graph artifact",
+    "graph":    VerbSpec("graph",    "replay-oriented conn/DNS/Pi-hole HTML graph artifact",
                          "[PATH ...]", _GRAPH_ALLOWED),
     "export":   VerbSpec("export",   "pull logs from external systems to local files",
                          "[BACKEND] [QUERY ...]", _EXPORT_ALLOWED),
@@ -377,7 +377,7 @@ def _global_usage_text(no_config: bool = False) -> str:
         "  sigwood digest [options] PATH    orient-before-the-hunt card; schema is",
         "                                   inferred from the file (conn, dns, syslog,",
         "                                   cloudtrail, or blob for unrecognized text)",
-        "  sigwood graph [options] [PATH ...] replay-oriented conn/DNS HTML artifact",
+        "  sigwood graph [options] [PATH ...] replay-oriented conn/DNS/Pi-hole HTML artifact",
         "",
         "  sigwood export                   pull logs from external systems",
         "  sigwood init                     first-run setup wizard",
@@ -1161,8 +1161,8 @@ def _run_graph(args: list[str]) -> int:
     Graph's CLI owns the public surface that is intentionally absent from the
     runner: positional sniffing, same-kind fan-out, report target selection,
     dry-run, and the final exit ledger across independently attempted buckets.
-    Graph accepts only conn and Zeek DNS inputs; other structured logs are not
-    silently routed to digest or an unrelated graph.
+    Graph accepts conn, Zeek DNS, and Pi-hole inputs; other structured logs are
+    not silently routed to digest or an unrelated graph.
     """
     import sigwood.runner as runner
     from sigwood.common.sources import probe_graph_inputs
@@ -1172,11 +1172,13 @@ def _run_graph(args: list[str]) -> int:
     _assert_all_vs_timeframe(parsed)
 
     paths = parsed.get("paths") or []
-    if paths and "zeek_dir" in parsed:
-        raise UsageError(
-            "--zeek-dir is not valid alongside a positional PATH "
-            "(positionals self-route via sniff)"
-        )
+    if paths:
+        for source_key in ("zeek_dir", "pihole_dir"):
+            if source_key in parsed:
+                raise UsageError(
+                    f"--{source_key.replace('_', '-')} is not valid alongside "
+                    "a positional PATH (positionals self-route via sniff)"
+                )
 
     config = _load_config(parsed)
     cfg.validate_table_sections(config, ("sigwood", "graph"))
@@ -1193,14 +1195,21 @@ def _run_graph(args: list[str]) -> int:
     since, until = _resolve_timeframe(parsed, use_utc=use_utc)
 
     raw_inputs: list[str] | None
+    source_overrides = {
+        source_key: str(parsed[source_key])
+        for source_key in ("zeek_dir", "pihole_dir")
+        if parsed.get(source_key)
+    }
     if paths:
         raw_inputs = paths
-    elif parsed.get("zeek_dir"):
-        raw_inputs = [str(parsed["zeek_dir"])]
     else:
         raw_inputs = None
 
-    probe = probe_graph_inputs(config, raw_inputs)
+    probe = probe_graph_inputs(
+        config,
+        raw_inputs,
+        source_overrides=source_overrides or None,
+    )
     buckets = probe.buckets
     input_errors = input_permissions = 0
     for issue in probe.issues:
@@ -1275,7 +1284,7 @@ def _run_graph(args: list[str]) -> int:
         # fallback at the runner boundary.  Passing its resolved file here
         # would falsely turn it into a sniff-approved positional input and
         # bypass the loader's filename discovery gate.
-        runner_inputs = inputs if raw_inputs is not None else None
+        runner_inputs = inputs if raw_inputs is not None or source_overrides else None
         try:
             written = runner.run_graph(
                 config,

@@ -126,6 +126,22 @@ def test_clip_export_reuses_the_data_script_escape_before_reembedding() -> None:
     assert json.loads(blob) == payload
 
 
+def test_player_preserves_fractional_counts_in_every_weighted_surface() -> None:
+    """Weighted query mass remains visible in the replay and downloaded clip."""
+    template = _player_template()
+
+    assert 'if (n > 0 && n < 0.1) return "<0.1";' in template
+    assert 'if (Number.isInteger(n)) return Math.round(n).toLocaleString("en-US");' in template
+    assert "return n.toFixed(1);" in template
+    assert '$("st-cps").textContent = fmtN(cps);' in template
+    assert 'fmtN(e.v / BIN) + "/s"' in template
+    assert 'fmtN(v / BIN) + "/s"' in template
+    assert "rows, clip: true," in template
+    assert "totB: [...ntotB], totC: [...ntotC]," in template
+    assert "Math.round(db[x])" not in template
+    assert "Math.round(dc[x])" not in template
+
+
 def test_player_is_self_contained_and_has_no_stale_poc_or_dash_residue() -> None:
     template = _player_template()
     for forbidden in (

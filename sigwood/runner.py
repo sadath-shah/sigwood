@@ -2038,14 +2038,16 @@ def run_graph(
     # it holds for both dated-select and flat-trim window shapes.
     cfg_sigwood = config.get("sigwood", {})
     default_spec = cfg_sigwood.get("default_window", "7d")
-    load_windows = loader.resolve_load_windows(
-        needed_logs,
-        source_dirs,
-        default_spec,
-        since=since,
-        until=until,
-        load_all=load_all,
-    )
+    load_windows = []
+    if spec.source_key == "zeek_dir":
+        load_windows = loader.resolve_load_windows(
+            needed_logs,
+            source_dirs,
+            default_spec,
+            since=since,
+            until=until,
+            load_all=load_all,
+        )
     default_window_note: str | None = None
     source_windows: dict[str, tuple[datetime | None, datetime | None]] | None = None
     flat_span: timedelta | None = None

@@ -403,6 +403,57 @@ def test_build_payload_does_not_mutate_caller_metadata() -> None:
     _assert_budgets(_grouped(GRAPH_MAX_FLOWS), bins=1)
 
 
+def test_weighted_count_mode_preserves_fractional_query_mass() -> None:
+    """Weight mode keeps pihole-style c shares instead of counting split rows."""
+    frame = pd.DataFrame({
+        "ts": [0.0, 0.0],
+        "src": ["192.0.2.10", "192.0.2.10"],
+        "dst": ["ads.example.com", "ads.example.com"],
+        "svc": ["cached", "forwarded"],
+        "metric": [0.6, 0.4],
+    })
+
+    payload = build_payload(
+        frame,
+        kind="pihole",
+        source_label="pihole.log",
+        config=_config(target_bins=1),
+        meta={},
+        default_window_note=None,
+        count_by="weight",
+        row_count=1,
+    )
+
+    assert payload["meta"]["rows"] == 1
+    assert payload["totB"] == pytest.approx([1.0])
+    assert payload["totC"] == pytest.approx([1.0])
+    assert all(isinstance(value, float) for value in payload["totC"])
+    assert sorted(flow["c"][1] for flow in payload["flows"]) == pytest.approx([0.4, 0.6])
+
+
+@pytest.mark.parametrize("weight", [-1.0, math.nan, math.inf, None])
+def test_weighted_count_mode_rejects_invalid_weight_values(weight: object) -> None:
+    """Weight mode refuses a builder bug rather than coercing it to zero."""
+    frame = pd.DataFrame({
+        "ts": [0.0],
+        "src": ["192.0.2.10"],
+        "dst": ["ads.example.com"],
+        "svc": ["cached"],
+        "metric": [weight],
+    })
+
+    with pytest.raises(ValueError, match="metric values are too large"):
+        build_payload(
+            frame,
+            kind="pihole",
+            source_label="pihole.log",
+            config=_config(),
+            meta={},
+            default_window_note=None,
+            count_by="weight",
+        )
+
+
 def test_graph_builders_contain_oversized_label_string_conversion() -> None:
     """Hostile numeric labels degrade safely before they reach script data."""
     too_large_to_render = 10 ** 5_000

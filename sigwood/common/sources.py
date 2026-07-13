@@ -30,7 +30,7 @@ import fnmatch
 import stat
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Mapping, Sequence
 
 from sigwood.common.loader import discover_for_source_key, sniff_format_detailed
 from sigwood.common.paths import effective_root, resolve_path
@@ -101,6 +101,13 @@ GRAPH_KINDS: tuple[GraphKindSpec, ...] = (
         pattern="dns*.log*",
         sniff_schema="dns",
         sniff_origin="zeek",
+    ),
+    GraphKindSpec(
+        kind="pihole",
+        source_key="pihole_dir",
+        pattern="pihole*.log*",
+        sniff_schema="dns",
+        sniff_origin="pihole",
     ),
 )
 
@@ -483,14 +490,18 @@ def _append_bucket(
 def probe_graph_inputs(
     config: dict[str, Any],
     inputs: Sequence[str | Path] | None = None,
+    *,
+    source_overrides: Mapping[str, str | Path | Sequence[str | Path]] | None = None,
 ) -> GraphProbeResult:
     """Resolve graph inputs without letting one bad path abort sibling buckets.
 
-    The result preserves graphable same-kind buckets plus typed probe issues.
-    The CLI owns narration and final exit precedence, so a bad or denied input
-    can be reported while a valid sibling still produces its artifact. Directory
-    probing remains loader-owned and the bounded directory vote is retained only
-    to disclose non-graphable families that graph intentionally skips.
+    Positional ``inputs`` remain content-sniffed and can create every graph
+    kind. ``source_overrides`` keeps graph source-dir flags family-scoped, so a
+    declared Pi-hole source never becomes a Zeek bucket merely because a
+    neighboring file is graphable. The result preserves graphable same-kind
+    buckets plus typed probe issues. The CLI owns narration and final exit
+    precedence, so a bad or denied input can be reported while a valid sibling
+    still produces its artifact.
     """
     buckets: dict[str, list[Path]] = {}
     issues: list[GraphProbeIssue] = []
@@ -508,7 +519,11 @@ def probe_graph_inputs(
         else:
             issues.append(GraphProbeIssue(path, str(exc)))
 
-    def _record_directory(path: Path, discovered: dict[str, list[Path]], tally: dict[str, int]) -> None:
+    def _record_directory(
+        path: Path,
+        discovered: dict[str, list[Path]],
+        tally: dict[str, int],
+    ) -> None:
         for kind in discovered:
             _append_bucket(buckets, kind, path)
         if len(discovered) > 1:
@@ -520,7 +535,45 @@ def probe_graph_inputs(
         if non_graph_votes:
             mixed_votes[str(path)] = dict(tally)
 
+    def _family_specs(source_key: str) -> tuple[GraphKindSpec, ...]:
+        return tuple(spec for spec in GRAPH_KINDS if spec.source_key == source_key)
+
+    def _probe_family_path(path: Path, family_specs: tuple[GraphKindSpec, ...]) -> None:
+        """Probe a configured or declared source without widening its family."""
+        kind = _graph_path_kind(path)
+        if kind == "file":
+            sniff = sniff_format_detailed(path)
+            matched = graph_kind_for_sniff(sniff.schema, sniff.origin)
+            if matched is not None and matched in family_specs:
+                if discover_for_source_key(
+                    matched.source_key, path, matched.pattern,
+                ):
+                    _append_bucket(buckets, matched.kind, path)
+                    return
+                raise ValueError(_graph_config_filename_message(path, matched))
+            raise ValueError(_graph_unsupported_message(path))
+
+        discovered, tally = _probe_graph_directory(path)
+        matching = {
+            spec.kind: discovered[spec.kind]
+            for spec in family_specs
+            if spec.kind in discovered
+        }
+        if matching:
+            _record_directory(path, matching, tally)
+        else:
+            for spec in family_specs:
+                _append_bucket(buckets, spec.kind, path)
+        non_graph_votes = {
+            origin: count for origin, count in tally.items()
+            if origin not in graph_origins
+        }
+        if non_graph_votes:
+            mixed_votes[str(path)] = dict(tally)
+
     raw_inputs = list(inputs or ())
+    if raw_inputs and source_overrides:
+        raise ValueError("graph positionals and source overrides are mutually exclusive")
     if raw_inputs:
         root = effective_root(config)
         for raw in raw_inputs:
@@ -548,6 +601,23 @@ def probe_graph_inputs(
                         _append_bucket(buckets, spec.kind, path)
             except (PermissionError, ValueError, OSError) as exc:
                 _issue(path, exc)
+    elif source_overrides:
+        graph_source_keys = {spec.source_key for spec in GRAPH_KINDS}
+        unknown = sorted(set(source_overrides) - graph_source_keys)
+        if unknown:
+            raise ValueError(f"unsupported graph source key: {unknown[0]}")
+        resolved = resolve_sources(
+            config,
+            overrides=dict(source_overrides),
+            scope=frozenset(source_overrides),
+        )
+        for source_key in source_overrides:
+            family_specs = _family_specs(source_key)
+            for path in getattr(resolved, source_key):
+                try:
+                    _probe_family_path(path, family_specs)
+                except (PermissionError, ValueError, OSError) as exc:
+                    _issue(path, exc)
     else:
         # Resolve one configured source family at a time. When a configured
         # directory has no graphable files, retain empty buckets for that family
@@ -560,46 +630,9 @@ def probe_graph_inputs(
                 if source_id in seen_sources:
                     continue
                 seen_sources.add(source_id)
-                family_specs = tuple(
-                    item for item in GRAPH_KINDS if item.source_key == spec.source_key
-                )
+                family_specs = _family_specs(spec.source_key)
                 try:
-                    kind = _graph_path_kind(path)
-                    if kind == "file":
-                        sniff = sniff_format_detailed(path)
-                        matched = graph_kind_for_sniff(sniff.schema, sniff.origin)
-                        if matched is not None and matched.source_key == spec.source_key:
-                            if discover_for_source_key(
-                                matched.source_key, path, matched.pattern,
-                            ):
-                                _append_bucket(buckets, matched.kind, path)
-                            else:
-                                raise ValueError(
-                                    _graph_config_filename_message(path, matched)
-                                )
-                        else:
-                            raise ValueError(_graph_unsupported_message(path))
-                        continue
-                    discovered, tally = _probe_graph_directory(path)
-                    matching = {
-                        item.kind: files
-                        for item, files in (
-                            (item, discovered.get(item.kind, []))
-                            for item in family_specs
-                        )
-                        if files
-                    }
-                    if matching:
-                        _record_directory(path, matching, tally)
-                    else:
-                        for item in family_specs:
-                            _append_bucket(buckets, item.kind, path)
-                    non_graph_votes = {
-                        origin: count for origin, count in tally.items()
-                        if origin not in graph_origins
-                    }
-                    if non_graph_votes:
-                        mixed_votes[str(path)] = dict(tally)
+                    _probe_family_path(path, family_specs)
                 except (PermissionError, ValueError, OSError) as exc:
                     _issue(path, exc)
 
