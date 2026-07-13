@@ -135,47 +135,6 @@ Run them all (`sigwood hunt`), select some (`sigwood hunt --detect=beacon,dns`),
 (`sigwood hunt --detect='all,!syslog'`). Each detector is also its own subcommand:
 `sigwood beacon ~/zeek`.
 
-## sigwood and RITA / AC-Hunter
-
-If you know [RITA](https://github.com/activecm/rita) (or its commercial sibling AC-Hunter),
-the beacon-hunting goal will look familiar - both hunt C2 in Zeek logs, and RITA is excellent
-at it. sigwood differs in conception: there is no database and no import step (it reads Zeek -
-and Pi-hole, syslog, and CloudTrail - in place), it spans several log families rather than
-conn/dns alone, and it ships an orientation verb (`digest`) for logs you haven't met yet. If
-you already run RITA against a dedicated Zeek sensor, keep it - sigwood is for the box where
-the logs already live and the analyst who wants one tool across all of them.
-
-## How a run works
-
-```
-discover & parse  →  allowlist (suppress)  →  detect  →  render
-```
-
-The **loader** finds files, decompresses, and normalizes every connection source to one
-canonical schema, absorbing storage variation (TSV vs. NDJSON, flat vs. dated directories,
-rotation). The **allowlist** suppresses known-good traffic before analysis. **Detectors** only
-analyze - they never open files, read config, or suppress. **Output handlers** only render.
-The CLI turns errors into actionable messages and owns the exit code. Every detector is also
-an importable Python function, handy in a notebook.
-
-### Analysis window
-
-Pointed at a **directory**, an unqualified run looks back over the last `default_window` (`7d`
-out of the box) of *that source's own* data - a sensible default for a live log dir you don't
-want to read in full every time. Pointed at a **single file**, it reads the whole file.
-Override either way:
-
-```bash
-sigwood --since=7d ~/zeek            # last 7 days
-sigwood --since=2026-05-01 --until=2026-05-08 ~/zeek
-sigwood --days=2-4 ~/zeek            # 2 to 4 days ago
-sigwood --all ~/zeek                 # the entire archive
-```
-
-CloudTrail opts out of the default window - novelty detection needs full history, so it always
-loads in full unless you narrow it explicitly. Times render in your local timezone (labeled as
-such); pass `--utc` or set `use_utc = true` for UTC. `json` output is always UTC.
-
 ## Orient before the hunt: `digest`
 
 ```bash
@@ -223,6 +182,47 @@ substitute.
   <img src="https://raw.githubusercontent.com/helixmap/sigwood/main/docs/img/graph.gif"
        width="760" alt="sigwood graph replaying Pi-hole query flows - clients, domains, and dispositions over time, synthetic RFC 5737 data with random-label demo domains">
 </p>
+
+## sigwood and RITA / AC-Hunter
+
+If you know [RITA](https://github.com/activecm/rita) (or its commercial sibling AC-Hunter),
+the beacon-hunting goal will look familiar - both hunt C2 in Zeek logs, and RITA is excellent
+at it. sigwood differs in conception: there is no database and no import step (it reads Zeek -
+and Pi-hole, syslog, and CloudTrail - in place), it spans several log families rather than
+conn/dns alone, and it ships an orientation verb (`digest`) for logs you haven't met yet. If
+you already run RITA against a dedicated Zeek sensor, keep it - sigwood is for the box where
+the logs already live and the analyst who wants one tool across all of them.
+
+## How a run works
+
+```
+discover & parse  →  allowlist (suppress)  →  detect  →  render
+```
+
+The **loader** finds files, decompresses, and normalizes every connection source to one
+canonical schema, absorbing storage variation (TSV vs. NDJSON, flat vs. dated directories,
+rotation). The **allowlist** suppresses known-good traffic before analysis. **Detectors** only
+analyze - they never open files, read config, or suppress. **Output handlers** only render.
+The CLI turns errors into actionable messages and owns the exit code. Every detector is also
+an importable Python function, handy in a notebook.
+
+### Analysis window
+
+Pointed at a **directory**, an unqualified run looks back over the last `default_window` (`7d`
+out of the box) of *that source's own* data - a sensible default for a live log dir you don't
+want to read in full every time. Pointed at a **single file**, it reads the whole file.
+Override either way:
+
+```bash
+sigwood --since=7d ~/zeek            # last 7 days
+sigwood --since=2026-05-01 --until=2026-05-08 ~/zeek
+sigwood --days=2-4 ~/zeek            # 2 to 4 days ago
+sigwood --all ~/zeek                 # the entire archive
+```
+
+CloudTrail opts out of the default window - novelty detection needs full history, so it always
+loads in full unless you narrow it explicitly. Times render in your local timezone (labeled as
+such); pass `--utc` or set `use_utc = true` for UTC. `json` output is always UTC.
 
 ## Installation
 
