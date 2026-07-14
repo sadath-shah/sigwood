@@ -60,8 +60,8 @@ max_findings_per_detector = 100
 # detail before the player applies its own smooth-interaction safety budgets.
 [graph]
 target_bins  = 2000
-top_hosts    = 24
-top_services = 12
+top_hosts    = 30
+top_services = 16
 domain_level = "domain"
 
 [allowlist]

@@ -61,7 +61,7 @@ def build(
             "hosts_label": "hosts seen",
             "mid_label": "services",
             "mid_singular": "service",
-            "metric_note": "orig bytes",
+            "metric_note": None,
             "display_utc": display_utc,
         },
     )

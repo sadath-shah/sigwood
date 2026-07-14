@@ -861,6 +861,154 @@ def test_run_graph_sets_default_window_metadata_only_from_resolver_result(
     assert applied
 
 
+def test_graph_date_dir_window_uses_exact_name_and_display_timezone(
+    tmp_path: Path, pin_tz,
+) -> None:
+    source = tmp_path / "2026-05-25"
+    source.mkdir()
+
+    assert runner._graph_date_dir_window([source], use_utc=True) == (
+        datetime(2026, 5, 25, 0, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 5, 25, 23, 59, 59, tzinfo=timezone.utc),
+    )
+
+    pin_tz("Etc/GMT+6")
+    assert runner._graph_date_dir_window([source], use_utc=False) == (
+        datetime(2026, 5, 25, 6, 0, 0, tzinfo=timezone.utc),
+        datetime(2026, 5, 26, 5, 59, 59, tzinfo=timezone.utc),
+    )
+
+
+def test_graph_date_dir_window_rejects_lookalikes_parent_layouts_and_probe_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    suffixed = tmp_path / "2026-05-25-TSVPRE"
+    suffixed.mkdir()
+    exact_parent = tmp_path / "2026-05-26"
+    exact_parent.mkdir()
+    (exact_parent / "2026-05-25").mkdir()
+    exact_file = tmp_path / "2026-05-27"
+    exact_file.write_text("placeholder\n", encoding="utf-8")
+
+    assert runner._graph_date_dir_window([suffixed], use_utc=True) is None
+    assert runner._graph_date_dir_window([exact_parent], use_utc=True) is None
+    assert runner._graph_date_dir_window([exact_file], use_utc=True) is None
+    assert runner._graph_date_dir_window([suffixed, exact_parent], use_utc=True) is None
+
+    probe = tmp_path / "2026-05-28"
+    probe.mkdir()
+    monkeypatch.setattr(
+        loader, "_zeek_date_subdirs",
+        lambda _path: (_ for _ in ()).throw(OSError("probe denied")),
+    )
+    assert runner._graph_date_dir_window([probe], use_utc=True) is None
+
+
+@pytest.mark.parametrize(
+    ("kind", "filename", "line"),
+    [
+        ("conn", "conn.log", _CONN_LINE),
+        ("dns", "dns.log", _DNS_LINE),
+    ],
+)
+def test_run_graph_date_directory_filters_real_zeek_rows_for_every_graph_kind(
+    tmp_path: Path,
+    restore_display_utc,
+    kind: str,
+    filename: str,
+    line: str,
+) -> None:
+    source = tmp_path / "2026-05-25"
+    source.mkdir()
+    earlier = line.replace("1779750000.0", "1779663600.0").replace(
+        '"uid":"C1"', '"uid":"C0"',
+    ).replace('"uid":"D1"', '"uid":"D0"')
+    (source / filename).write_text(earlier + line, encoding="utf-8")
+    config = _config()
+    config["sigwood"]["default_window"] = "7d"
+    stream = io.StringIO()
+
+    runner.run_graph(
+        config, kind=kind, inputs=source, stream=stream, quiet=True, use_utc=True,
+    )
+
+    blob = stream.getvalue().split("const DATA = ", 1)[1].split(";</script>", 1)[0]
+    meta = json.loads(blob)["meta"]
+    assert meta["rows"] == 1
+    assert meta["default_window_note"] == (
+        "windowed to 2026-05-25 (date-named directory) - "
+        "pass --all or --since/--until to change"
+    )
+
+
+@pytest.mark.parametrize(
+    ("default_window", "kwargs"),
+    [
+        ("all", {}),
+        ("7d", {"load_all": True}),
+        (
+            "7d",
+            {
+                "since": datetime(2026, 5, 25, tzinfo=timezone.utc),
+                "until": datetime(2026, 5, 25, 23, 59, 59, tzinfo=timezone.utc),
+            },
+        ),
+    ],
+)
+def test_run_graph_date_directory_respects_window_opt_outs(
+    tmp_path: Path,
+    restore_display_utc,
+    default_window: str,
+    kwargs: dict[str, object],
+) -> None:
+    source = tmp_path / "2026-05-25"
+    source.mkdir()
+    (source / "conn.log").write_text(_CONN_LINE, encoding="utf-8")
+    config = _config()
+    config["sigwood"]["default_window"] = default_window
+    stream = io.StringIO()
+
+    runner.run_graph(
+        config,
+        kind="conn",
+        inputs=source,
+        stream=stream,
+        quiet=True,
+        use_utc=True,
+        **kwargs,
+    )
+
+    blob = stream.getvalue().split("const DATA = ", 1)[1].split(";</script>", 1)[0]
+    assert json.loads(blob)["meta"]["default_window_note"] is None
+
+
+def test_run_graph_date_directory_empty_explains_long_lived_connections(
+    tmp_path: Path, restore_display_utc,
+) -> None:
+    source = tmp_path / "2026-05-25"
+    source.mkdir()
+    earlier = _CONN_LINE.replace("1779750000.0", "1779663600.0")
+    (source / "conn.log").write_text(earlier, encoding="utf-8")
+    config = _config()
+    config["sigwood"]["default_window"] = "7d"
+
+    with pytest.raises(GraphEmpty) as caught:
+        runner.run_graph(
+            config,
+            kind="conn",
+            inputs=source,
+            stream=io.StringIO(),
+            quiet=True,
+            use_utc=True,
+        )
+
+    assert caught.value.reason == (
+        "date-named directory 2026-05-25 has no connections that started that day "
+        "(long-lived flows closing that day carry earlier start times) - "
+        "pass --all to include them"
+    )
+
+
 def test_run_graph_pihole_skips_implicit_window_but_keeps_explicit_timeframe(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:

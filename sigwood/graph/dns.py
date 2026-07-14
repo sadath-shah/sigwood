@@ -27,6 +27,11 @@ _QTYPE_MNEMONIC = {
     257: "CAA",
 }
 
+_LEVEL_PHRASE = {
+    "domain": "registered domain",
+    "tld": "public suffix",
+}
+
 
 def _qtype_labels(values: pd.Series) -> pd.Series:
     def _label(value: object) -> str:
@@ -100,7 +105,7 @@ def build(
             "hosts_label": "entities seen",
             "mid_label": mid_label,
             "mid_singular": mid_singular,
-            "metric_note": f"domains rolled to {config['domain_level']}",
+            "metric_note": f"rolled to {_LEVEL_PHRASE[config['domain_level']]}",
             "display_utc": display_utc,
         },
     )

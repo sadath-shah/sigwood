@@ -131,7 +131,7 @@ def build(
             "hosts_label": "entities seen",
             "mid_label": "dispositions",
             "mid_singular": "disposition",
-            "metric_note": "dispositions attributed per domain",
+            "metric_note": "weighted by disposition share",
             "display_utc": display_utc,
         },
     )

@@ -55,8 +55,8 @@ def _grouped(flow_count: int) -> pd.DataFrame:
 def test_validate_graph_config_merges_defaults_and_rejects_invalid_scalars() -> None:
     assert validate_config({"target_bins": 1, "domain_level": "tld"}) == {
         "target_bins": 1,
-        "top_hosts": 24,
-        "top_services": 12,
+        "top_hosts": 30,
+        "top_services": 16,
         "domain_level": "tld",
     }
 
@@ -158,6 +158,7 @@ def test_conn_payload_keeps_null_metrics_as_zero_and_collapses_icmp() -> None:
         "generator": payload["meta"]["generator"],
         "display_utc": True,
         "default_window_note": "default 7d window applied",
+        "weighted": False,
         "hunt_hint": None,
         "kind": "conn",
         "single_metric": False,
@@ -165,7 +166,7 @@ def test_conn_payload_keeps_null_metrics_as_zero_and_collapses_icmp() -> None:
         "hosts_label": "hosts seen",
         "mid_label": "services",
         "mid_singular": "service",
-        "metric_note": "orig bytes",
+        "metric_note": None,
     }
     assert payload["svcNodes"] == ["443/tcp", "icmp"]
     assert payload["totB"] == [12, 0]
@@ -230,6 +231,8 @@ def test_dns_uses_qtype_fallback_then_resolver_and_rolls_domains() -> None:
     )
     assert qtype_payload["meta"]["single_metric"] is True
     assert qtype_payload["meta"]["mid_label"] == "qtypes"
+    assert qtype_payload["meta"]["metric_note"] == "rolled to registered domain"
+    assert qtype_payload["meta"]["weighted"] is False
     assert qtype_payload["svcNodes"] == ["99", "A"]
     assert [node["id"] for node in qtype_payload["dstNodes"]] == ["example.com"]
     assert qtype_payload["totB"] == [1, 1]
@@ -249,6 +252,7 @@ def test_dns_uses_qtype_fallback_then_resolver_and_rolls_domains() -> None:
         source_label="dns.log",
     )
     assert resolver_payload["meta"]["mid_label"] == "resolvers"
+    assert resolver_payload["meta"]["metric_note"] == "rolled to public suffix"
     assert resolver_payload["svcNodes"] == ["(unknown)", "198.51.100.53"]
     assert [node["id"] for node in resolver_payload["dstNodes"]] == ["co.uk"]
 
@@ -494,10 +498,43 @@ def test_weighted_count_mode_preserves_fractional_query_mass() -> None:
     )
 
     assert payload["meta"]["rows"] == 1
+    assert payload["meta"]["weighted"] is True
     assert payload["totB"] == pytest.approx([1.0])
     assert payload["totC"] == pytest.approx([1.0])
     assert all(isinstance(value, float) for value in payload["totC"])
     assert sorted(flow["c"][1] for flow in payload["flows"]) == pytest.approx([0.4, 0.6])
+
+
+def test_count_mode_owns_weighted_metadata_over_builder_extras() -> None:
+    """Builder metadata cannot contradict the payload count wire."""
+    frame = pd.DataFrame({
+        "ts": [0.0],
+        "src": ["192.0.2.10"],
+        "dst": ["ads.example.com"],
+        "svc": ["cached"],
+        "metric": [0.5],
+    })
+
+    weighted = build_payload(
+        frame,
+        kind="pihole",
+        source_label="pihole.log",
+        config=_config(target_bins=1),
+        meta={"weighted": False},
+        default_window_note=None,
+        count_by="weight",
+    )
+    counted = build_payload(
+        frame,
+        kind="dns",
+        source_label="dns.log",
+        config=_config(target_bins=1),
+        meta={"weighted": True},
+        default_window_note=None,
+    )
+
+    assert weighted["meta"]["weighted"] is True
+    assert counted["meta"]["weighted"] is False
 
 
 @pytest.mark.parametrize("weight", [-1.0, math.nan, math.inf, None])

@@ -33,8 +33,8 @@ def validate_config(cfg: object) -> dict[str, Any]:
 
     defaults = {
         "target_bins": 2000,
-        "top_hosts": 24,
-        "top_services": 12,
+        "top_hosts": 30,
+        "top_services": 16,
         "domain_level": "domain",
     }
     out = dict(defaults)
@@ -416,6 +416,7 @@ def build_payload(
         "display_utc": bool(payload_meta_extra.pop("display_utc", False)),
         "default_window_note": default_window_note,
         **payload_meta_extra,
+        "weighted": count_by == "weight",
         "hunt_hint": None,
     }
     return {

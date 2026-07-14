@@ -18,7 +18,7 @@ import pkgutil
 import shlex
 import sys
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Collection, Mapping, Sequence
 
@@ -1974,6 +1974,33 @@ def _graph_source_label(paths: Sequence[Path]) -> str:
     return ", ".join(strip_control(path.name) for path in paths)
 
 
+def _graph_date_dir_window(
+    source_inputs: Sequence[Path], *, use_utc: bool,
+) -> tuple[datetime, datetime] | None:
+    """Return one display-day window for an exact date-named Zeek directory."""
+    if len(source_inputs) != 1:
+        return None
+    target = source_inputs[0]
+    try:
+        if not target.is_dir():
+            return None
+        parsed = date.fromisoformat(target.name)
+        from sigwood.common import loader
+        if loader._zeek_date_subdirs(target):
+            return None
+    except (OSError, ValueError):
+        return None
+
+    start = datetime(parsed.year, parsed.month, parsed.day)
+    end = start.replace(hour=23, minute=59, second=59)
+    if use_utc:
+        return (
+            start.replace(tzinfo=timezone.utc),
+            end.replace(tzinfo=timezone.utc),
+        )
+    return start.astimezone(timezone.utc), end.astimezone(timezone.utc)
+
+
 def _graph_hunt_hint(
     payload: dict[str, Any],
     *,
@@ -2080,6 +2107,23 @@ def run_graph(
     # it holds for both dated-select and flat-trim window shapes.
     cfg_sigwood = config.get("sigwood", {})
     default_spec = cfg_sigwood.get("default_window", "7d")
+    date_dir_note: str | None = None
+    if (
+        spec.source_key == "zeek_dir"
+        and since is None
+        and until is None
+        and not load_all
+        and parse_window_span(default_spec) is not None
+    ):
+        date_dir_window = _graph_date_dir_window(
+            source_inputs, use_utc=use_utc,
+        )
+        if date_dir_window is not None:
+            since, until = date_dir_window
+            date_dir_note = (
+                f"windowed to {source_inputs[0].name} "
+                "(date-named directory) - pass --all or --since/--until to change"
+            )
     load_windows = []
     if spec.source_key == "zeek_dir":
         load_windows = loader.resolve_load_windows(
@@ -2090,7 +2134,7 @@ def run_graph(
             until=until,
             load_all=load_all,
         )
-    default_window_note: str | None = None
+    default_window_note = date_dir_note
     source_windows: dict[str, tuple[datetime | None, datetime | None]] | None = None
     flat_span: timedelta | None = None
     keep_null = False
@@ -2131,7 +2175,14 @@ def run_graph(
     frame = load_result.logs.get(spec.pattern)
     if frame is None or frame.empty:
         selected = since is not None or until is not None or bool(load_windows)
-        reason = "no records in selected window" if selected else "no parseable records"
+        if date_dir_note is not None and kind == "conn":
+            reason = (
+                f"date-named directory {source_inputs[0].name} has no connections "
+                "that started that day (long-lived flows closing that day carry "
+                "earlier start times) - pass --all to include them"
+            )
+        else:
+            reason = "no records in selected window" if selected else "no parseable records"
         raise GraphEmpty(kind, source_label, reason)
 
     total_records = sum(load_result.record_counts.values())

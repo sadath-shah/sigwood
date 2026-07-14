@@ -10,7 +10,7 @@
        palette per mode - node identity is always direct-labeled) ---------- */
 :root {
   --bg: #ffffff; --fg: #1f2933; --muted: #677181; --border: #d7dde4;
-  --panel: #f6f8fa; --accent: #2a78d6;
+  --panel: #f6f8fa; --accent: #2a78d6; --clock: #0a6e2e;
   --s1:#2a78d6; --s2:#1baf7a; --s3:#eda100; --s4:#008300;
   --s5:#4a3aa7; --s6:#e34948; --s7:#e87ba4; --s8:#eb6834;
   --sx1:#8a94a3; --sx2:#6b7686; --sother:#0d9f9f;
@@ -19,7 +19,7 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg: #14181d; --fg: #e6eaef; --muted: #9aa4b1; --border: #2a3038;
-    --panel: #1a2027; --accent: #3987e5;
+    --panel: #1a2027; --accent: #3987e5; --clock: #7dff58;
     --s1:#3987e5; --s2:#199e70; --s3:#c98500; --s4:#008300;
     --s5:#9085e9; --s6:#e66767; --s7:#d55181; --s8:#d95926;
     --sx1:#5c6673; --sx2:#79848f; --sother:#38c0c0;
@@ -28,7 +28,7 @@
 }
 :root[data-theme="light"] {
   --bg: #ffffff; --fg: #1f2933; --muted: #677181; --border: #d7dde4;
-  --panel: #f6f8fa; --accent: #2a78d6;
+  --panel: #f6f8fa; --accent: #2a78d6; --clock: #0a6e2e;
   --s1:#2a78d6; --s2:#1baf7a; --s3:#eda100; --s4:#008300;
   --s5:#4a3aa7; --s6:#e34948; --s7:#e87ba4; --s8:#eb6834;
   --sx1:#8a94a3; --sx2:#6b7686; --sother:#0d9f9f;
@@ -36,7 +36,7 @@
 }
 :root[data-theme="dark"] {
   --bg: #14181d; --fg: #e6eaef; --muted: #9aa4b1; --border: #2a3038;
-  --panel: #1a2027; --accent: #3987e5;
+  --panel: #1a2027; --accent: #3987e5; --clock: #7dff58;
   --s1:#3987e5; --s2:#199e70; --s3:#c98500; --s4:#008300;
   --s5:#9085e9; --s6:#e66767; --s7:#d55181; --s8:#d95926;
   --sx1:#5c6673; --sx2:#79848f; --sother:#38c0c0;
@@ -51,21 +51,53 @@ body {
 }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 header {
-  display: flex; align-items: flex-start; gap: 14px; flex-wrap: wrap;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 18px;
   padding: 10px 18px 6px 18px;
 }
 .hleft { display: flex; flex-direction: column; gap: 3px; }
 header .mark { font-size: 17px; font-weight: 700; letter-spacing: .2px; }
 header .mark .dim { color: var(--muted); font-weight: 400; }
+header .mark .wm {
+  font-family: Georgia, "Bookman Old Style", "Times New Roman", serif;
+  font-size: 18px;
+}
 /* The data clock gets top billing. */
-#bigclock { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
+#bigclock {
+  display: flex; align-items: center; gap: 11px; white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
 #bc-time {
-  font-size: 30px; font-weight: 700; color: var(--accent); line-height: 1.05;
+  font-size: 30px; font-weight: 700; color: var(--clock); line-height: 1.05;
   letter-spacing: 1.5px; font-variant-numeric: tabular-nums;
 }
-#bc-sub { font-size: 11.5px; color: var(--muted); letter-spacing: .6px; margin-left: 9px; }
-header .meta { color: var(--muted); font-size: 12.5px; padding-top: 4px; }
-header .spacer { flex: 1; }
+#bc-cal { display: flex; flex-direction: column; line-height: 1.12; }
+#bc-day { font-size: 16px; font-weight: 600; color: var(--clock); letter-spacing: .3px; }
+#bc-sub { font-size: 11.5px; color: var(--muted); letter-spacing: .6px; }
+.readout { min-width: 0; padding-top: 2px; }
+.readout-grid {
+  display: grid;
+  grid-template-columns: minmax(145px,1.2fr) minmax(245px,2fr) repeat(4,minmax(78px,auto));
+  gap: 6px 14px;
+}
+.readout-cell { min-width: 0; }
+.readout-label {
+  display: block; color: var(--muted); font-size: 9.5px; font-weight: 650;
+  letter-spacing: .65px; line-height: 1.15; text-transform: uppercase;
+}
+.readout-value { display: block; margin-top: 2px; font-size: 12px; line-height: 1.2; }
+.readout-clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.readout-foot {
+  display: flex; align-items: baseline; gap: 6px; min-width: 0;
+  margin-top: 6px; color: var(--muted); font-size: 10.5px;
+}
+.readout-foot .readout-label { display: inline; flex: none; }
+#meta-hunt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.readout-dot { flex: none; }
+@media (max-width: 900px) {
+  header { grid-template-columns: 1fr; gap: 8px; }
+  .readout-grid { grid-template-columns: repeat(3,minmax(0,1fr)); }
+  .readout-cell.window { grid-column: span 2; }
+}
 #stage { position: relative; flex: 1; min-height: 0; }
 #sankey { position: absolute; inset: 0; width: 100%; height: 100%; display: block; cursor: default; }
 #tooltip {
@@ -131,15 +163,24 @@ button.play { min-width: 44px; font-weight: 700; }
 input[type=range] { accent-color: var(--accent); width: 110px; }
 #winlabel { display: inline-block; min-width: 52px; }  /* fixed width: no reflow jiggle */
 #stats {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(32px, 1fr));
   gap: 8px; padding: 4px 18px 14px 18px;
 }
 .tile {
   background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-  padding: 7px 10px; min-width: 0;
+  padding: 7px 10px; min-width: 0; grid-column: span 3;
 }
-.tile .k { font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); }
+.tile.w-med { grid-column: span 4; }
+.tile.w-wide { grid-column: span 5; }
+.tile .k {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .tile .v { font-size: 14.5px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 560px) {
+  #stats { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .tile, .tile.w-med, .tile.w-wide { grid-column: auto; }
+}
 #fps { position: fixed; right: 8px; bottom: 8px; font-size: 11px; color: var(--muted); display: none; z-index: 20; }
 #filterbadge { display: none; color: var(--accent); font-weight: 600; }
 </style>
@@ -147,12 +188,24 @@ input[type=range] { accent-color: var(--accent); width: 110px; }
 <body>
 <header>
   <div class="hleft">
-    <div class="mark">sigwood <span class="dim">·</span> graph</div>
-    <div id="bigclock"><span id="bc-time">-:-:-</span><span id="bc-sub"></span></div>
+    <div class="mark"><span class="wm">sigwood</span> <span class="dim">·</span> graph</div>
+    <div id="bigclock"><span id="bc-time">-:-:-</span><span id="bc-cal"><span id="bc-day"></span><span id="bc-sub"></span></span></div>
   </div>
-  <div class="meta mono" id="srcmeta"></div>
-  <div class="spacer"></div>
-  <div class="meta" id="winnote"></div>
+  <div class="readout">
+    <div class="readout-grid">
+      <div class="readout-cell source"><span class="readout-label">source</span><span class="readout-value readout-clip mono" id="meta-source"></span></div>
+      <div class="readout-cell window"><span class="readout-label">window</span><span class="readout-value mono" id="meta-window"></span></div>
+      <div class="readout-cell"><span class="readout-label">records</span><span class="readout-value mono" id="meta-count"></span></div>
+      <div class="readout-cell" id="meta-entities-cell"><span class="readout-label">entities</span><span class="readout-value mono" id="meta-entities"></span></div>
+      <div class="readout-cell"><span class="readout-label">bin</span><span class="readout-value mono" id="meta-bin"></span></div>
+      <div class="readout-cell" id="meta-derivation-cell"><span class="readout-label">derivation</span><span class="readout-value" id="meta-derivation"></span></div>
+    </div>
+    <div class="readout-foot">
+      <span class="readout-label">hunt</span><span class="mono" id="meta-hunt"></span>
+      <span class="readout-dot">·</span><span id="meta-generator"></span>
+      <span class="readout-dot" id="meta-window-dot">·</span><span id="meta-window-note"></span>
+    </div>
+  </div>
 </header>
 
 <div id="stage">
@@ -206,6 +259,18 @@ input[type=range] { accent-color: var(--accent); width: 110px; }
       <button data-y="lin">lin</button><button data-y="log">log</button>
     </span>
   </div>
+  <div class="grp"><span>ribbons</span>
+    <span class="seg" id="fill">
+      <button data-f="blend" class="on">blend</button><button data-f="split">split</button>
+      <button data-f="src">src</button><button data-f="dst">dst</button>
+    </span>
+  </div>
+  <div class="grp"><span>scale</span>
+    <span class="seg" id="breathe">
+      <button data-breathe="0" class="on">fill</button><button data-breathe="0.5">breathe</button>
+      <button data-breathe="1">absolute</button>
+    </span>
+  </div>
   <div class="sep"></div>
   <div class="grp"><button id="theme" title="theme">◐</button></div>
   <div class="spacer" style="flex:1"></div>
@@ -213,14 +278,14 @@ input[type=range] { accent-color: var(--accent); width: 110px; }
 </div>
 
 <div id="stats">
-  <div class="tile" id="tile-rate"><div class="k">rate</div><div class="v mono" id="st-rate">-</div></div>
+  <div class="tile w-med" id="tile-rate"><div class="k">rate</div><div class="v mono" id="st-rate">-</div></div>
   <div class="tile"><div class="k" id="k-cps">conns / s</div><div class="v mono" id="st-cps">-</div></div>
-  <div class="tile" id="tile-cum"><div class="k">cumulative</div><div class="v mono" id="st-cum">-</div></div>
+  <div class="tile w-med" id="tile-cum"><div class="k">cumulative</div><div class="v mono" id="st-cum">-</div></div>
   <div class="tile"><div class="k" id="k-conns">connections</div><div class="v mono" id="st-conns">-</div></div>
   <div class="tile"><div class="k">flows shown</div><div class="v mono" id="st-active">-</div></div>
   <div class="tile"><div class="k" id="k-hosts">hosts seen</div><div class="v mono" id="st-hosts">-</div></div>
-  <div class="tile"><div class="k">top talker</div><div class="v mono" id="st-talker">-</div></div>
-  <div class="tile"><div class="k" id="k-svc">top service</div><div class="v mono" id="st-svc">-</div></div>
+  <div class="tile w-wide"><div class="k">top talker</div><div class="v mono" id="st-talker">-</div></div>
+  <div class="tile w-wide"><div class="k" id="k-svc">top service</div><div class="v mono" id="st-svc">-</div></div>
 </div>
 
 <div id="tooltip"></div>
@@ -248,6 +313,7 @@ const PRISTINE = "<!doctype html>\n" + document.documentElement.outerHTML;
 const M = DATA.meta;
 const B = M.bins, BIN = M.bin_seconds;
 const clockPart = (d, local, utc) => M.display_utc ? d[utc]() : d[local]();
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 function startOfDisplayDay(d) {
   if (M.display_utc) d.setUTCHours(0, 0, 0, 0);
   else d.setHours(0, 0, 0, 0);
@@ -279,6 +345,7 @@ let rawToModel;               // raw flow index -> active model flow index
 let groupLevel = 32;
 
 const OTHER = "(other)";
+const OTHER_RIBBON_DIM = 0.45, OTHER_BAR_ALPHA = 0.55;
 function rollKey(id, level) {
   if (level === 32 || id === OTHER) return id;
   const m = id.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/);
@@ -378,6 +445,7 @@ function buildModel(level) {
 /* ---------- smoothing (Epanechnikov, centered, edge-renormalized) ------- */
 let radius = 1;
 let smB, smC, smTotB, smTotC, peakRate = { b: 1, c: 1 }, floorRate = { b: 0, c: 0 };
+let robustPeak = { b: 1, c: 1 };
 function smooth(src, R) {
   const w = new Float32Array(2 * R + 1);
   let sum = 0;
@@ -426,6 +494,9 @@ function recomputeFloor() {
     floorRate[m] = Math.max(p25, peakRate[m] * 1e-3);
     fSm[m] = per[m];
     fPeak[m] = Math.max(m === "b" ? 1 : 1e-6, ...per[m]);
+    robustPeak[m] = Math.max(
+      nz[Math.floor(nz.length * 0.98)] ?? fPeak[m], floorRate[m]
+    );
     fTot[m] = raw[m];
     const cum = new Float64Array(B + 1);
     for (let i = 0; i < B; i++) cum[i+1] = cum[i] + raw[m][i];
@@ -468,6 +539,8 @@ let loop = true;
 let metric = "b";
 let mode = 2;
 let yLog = false;
+let ribbonStyle = "blend";
+let breathe = 0;
 let hover = null;
 let scaleEMA = null, snapScale = true;
 let rangeSet = false, loopA = 0, loopB = 0;   // loop range in bins
@@ -535,7 +608,11 @@ function layout(tt) {
   const total = sVal.reduce((a, x) => a + x, 0);
 
   const usable = H - 2 * PAD_Y - GAP * Math.max(SRC.length, DST.length, mode === 3 ? SVC.length : 0);
-  const target = Math.max(total, floorRate[metric]);
+  const targetFill = Math.max(total, floorRate[metric]);
+  const targetAbs = Math.max(robustPeak[metric], floorRate[metric]);
+  const target = breathe > 0
+    ? Math.pow(targetFill, 1 - breathe) * Math.pow(targetAbs, breathe)
+    : targetFill;
   const sTarget = Math.max(usable, 50) / target;
   if (snapScale || scaleEMA === null) { scaleEMA = sTarget; snapScale = false; }
   else scaleEMA += (sTarget - scaleEMA) * 0.10;
@@ -588,12 +665,15 @@ function layout(tt) {
 
 /* ---------- drawing ---------- */
 const gradCache = new Map();
-function grad(x0, x1, c0, c1, key) {
-  let g = gradCache.get(key);
+function grad(x0, x1, c0, c1, key, hard = false) {
+  const cacheKey = (hard ? "H" : "") + key;
+  let g = gradCache.get(cacheKey);
   if (!g) {
     g = ctx.createLinearGradient(x0, 0, x1, 0);
-    g.addColorStop(0, c0); g.addColorStop(1, c1);
-    gradCache.set(key, g);
+    g.addColorStop(0, c0);
+    if (hard) { g.addColorStop(0.5, c0); g.addColorStop(0.5, c1); }
+    g.addColorStop(1, c1);
+    gradCache.set(cacheKey, g);
   }
   return g;
 }
@@ -606,11 +686,13 @@ function ribbon(x0, y0, x1, y1, h) {
   ctx.bezierCurveTo(cx, y1 + h, cx, y0 + h, x0, y0 + h);
   ctx.closePath();
 }
-function label(txt, x, y, align, size, color) {
+function label(txt, x, y, align, size, color, glow = true) {
   ctx.font = `${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
   ctx.textAlign = align; ctx.textBaseline = "middle";
-  ctx.lineWidth = 3; ctx.strokeStyle = TH.halo;
-  ctx.strokeText(txt, x, y);
+  if (glow) {
+    ctx.lineWidth = 3; ctx.strokeStyle = TH.halo;
+    ctx.strokeText(txt, x, y);
+  }
   ctx.fillStyle = color; ctx.fillText(txt, x, y);
 }
 let geom = null;
@@ -622,13 +704,16 @@ function draw() {
   const MIN_DRAW = 0.4;
 
   const hovSet = hover && hover.flows ? hover.flows : null;
-  const baseA = hovSet ? 0.10 : 0.66;
+  const restA = ribbonStyle === "blend" ? 0.66 : 0.85;
+  const baseA = hovSet ? 0.10 : restA;
 
   function drawRibbons(x0, x1, list) {
     for (const r of list) {
       if (r.h < MIN_DRAW) continue;
-      ctx.globalAlpha = hovSet ? (r.hot ? 0.85 : baseA) : baseA;
-      ctx.fillStyle = grad(x0, x1, r.c0, r.c1, r.key);
+      ctx.globalAlpha = (hovSet ? (r.hot ? 0.85 : baseA) : baseA) * (r.dim || 1);
+      if (ribbonStyle === "src") ctx.fillStyle = r.c0;
+      else if (ribbonStyle === "dst") ctx.fillStyle = r.c1;
+      else ctx.fillStyle = grad(x0, x1, r.c0, r.c1, r.key, ribbonStyle === "split");
       ribbon(x0, r.y0, x1, r.y1, r.h);
       ctx.fill();
     }
@@ -645,6 +730,7 @@ function draw() {
         h, y0: g.L.ys[f.s] + g.offS[i], y1: g.R.ys[f.d] + g.offD[i],
         c0: entColor(SRC[f.s]), c1: entColor(DST[f.d]),
         key: "2|" + i, hot: hovSet && hovSet.has(i),
+        dim: SRC[f.s].id === OTHER || DST[f.d].id === OTHER ? OTHER_RIBBON_DIM : 1,
       });
     }
     drawRibbons(xL + NW, xR, list);
@@ -654,11 +740,13 @@ function draw() {
       h: lk.lv[k] * g.S, y0: g.L.ys[l.s] + lk.offLs[k], y1: g.Mid.ys[l.v] + lk.offLv[k],
       c0: entColor(SRC[l.s]), c1: svcColor(l.v, SVC[l.v]),
       key: "3L|" + k, hot: hovSet && l.idxs.some(i => hovSet.has(i)),
+      dim: SRC[l.s].id === OTHER || SVC[l.v] === OTHER ? OTHER_RIBBON_DIM : 1,
     })).filter(r => r.h >= MIN_DRAW);
     const right = vdList.map((l, k) => ({
       h: lk.rv[k] * g.S, y0: g.Mid.ys[l.v] + lk.offRv[k], y1: g.R.ys[l.d] + lk.offRd[k],
       c0: svcColor(l.v, SVC[l.v]), c1: entColor(DST[l.d]),
       key: "3R|" + k, hot: hovSet && l.idxs.some(i => hovSet.has(i)),
+      dim: SVC[l.v] === OTHER || DST[l.d].id === OTHER ? OTHER_RIBBON_DIM : 1,
     })).filter(r => r.h >= MIN_DRAW);
     drawRibbons(xL + NW, xM, left);
     drawRibbons(xM + NW, xR, right);
@@ -671,18 +759,22 @@ function draw() {
       if (h < 0.5) continue;
       const id = typeof nodes[i] === "string" ? nodes[i] : nodes[i].id;
       ctx.fillStyle = side === "M" ? svcColor(i, id) : entColor(nodes[i]);
+      if (id === OTHER) ctx.globalAlpha = OTHER_BAR_ALPHA;
       const y = col.ys[i];
       const r = Math.min(3, h / 2);
       ctx.beginPath(); ctx.roundRect(x, y, NW, h, r); ctx.fill();
+      ctx.globalAlpha = 1;
       const ly = y + h / 2;
       const aH = Math.min(1, (h - 3) / 10);
       const rawGap = Math.min(1, Math.max(0, (ly - lastLabelY - 11) / 6));
       const a = aH * (1 - (1 - rawGap) * lastLabelA);
       if (a > 0.05) {
         ctx.globalAlpha = a;
-        if (side === "L") label(id, x + NW + 8, ly, "left", 12, TH.fg);
-        else if (side === "R") label(id, x - 8, ly, "right", 12, TH.fg);
-        else label(id, x + NW / 2, ly, "center", 11, TH.fg);
+        const labelColor = id === OTHER ? TH.muted : TH.fg;
+        const glow = id !== OTHER;
+        if (side === "L") label(id, x + NW + 8, ly, "left", 12, labelColor, glow);
+        else if (side === "R") label(id, x - 8, ly, "right", 12, labelColor, glow);
+        else label(id, x + NW / 2, ly, "center", 11, labelColor, glow);
         ctx.globalAlpha = 1;
         lastLabelY = ly; lastLabelA = a;
       }
@@ -699,10 +791,20 @@ const yOf = (v, peak) => {
   const f = yLog ? Math.log1p(v) / Math.log1p(peak) : v / peak;
   return tlH - 14 - f * (tlH - 24);
 };
-function tickStep(spanSec) {
-  const steps = [300, 900, 1800, 3600, 10800, 21600, 43200, 86400, 172800, 604800];
-  for (const s of steps) if (spanSec / s <= 10) return s;
-  return 1209600;
+const TL_UNITS = [1, 5, 15, 30, 60, 300, 900, 1800, 3600, 86400, 604800];
+const MIN_LINE_PX = 13, LABEL_GAP_PX = 8;
+const WD = ["S", "M", "T", "W", "T", "F", "S"];
+const WD3 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+function lineUnit(spanSec) {
+  for (const unit of TL_UNITS)
+    if (unit * tlW / spanSec >= MIN_LINE_PX) return unit;
+  return TL_UNITS[TL_UNITS.length - 1];
+}
+function niceK(k, unit) {
+  const ladder = unit >= 86400 ? [1, 2, 7, 14, 28]
+    : unit >= 3600 ? [1, 2, 3, 4, 6, 8, 12, 24]
+    : [1, 2, 3, 5, 10, 15, 30, 60];
+  return ladder.find(value => value >= k) ?? ladder[ladder.length - 1];
 }
 function drawTimeline() {
   const tot = fSm[metric] || (metric === "b" ? smTotB : smTotC);
@@ -717,28 +819,51 @@ function drawTimeline() {
   tctx.globalAlpha = 0.35; tctx.fillStyle = TH.accent; tctx.fill(tlPath);
   tctx.globalAlpha = 1;
 
-  const spanSec = B * BIN, step = tickStep(spanSec);
+  const spanSec = B * BIN, unit = lineUnit(spanSec);
   tctx.font = "9px ui-monospace, SFMono-Regular, Menlo, monospace";
   tctx.textBaseline = "top"; tctx.textAlign = "left";
-  let tick;
-  if (step >= 86400) {
-    const d0 = new Date(M.t0 * 1000); startOfDisplayDay(d0);
-    tick = d0.getTime() / 1000;
-    while (tick < M.t0) tick += step;
-  } else {
-    tick = Math.ceil(M.t0 / step) * step;
-  }
-  for (; tick <= M.t0 + spanSec; tick += step) {
+  const sample = unit === 86400 ? "Mon 05-04" : unit > 86400 ? "05-04"
+    : unit < 60 ? "00:00:00" : "00:00";
+  const pxPer = unit * tlW / spanSec;
+  const labelEvery = niceK(
+    Math.ceil((tctx.measureText(sample).width + LABEL_GAP_PX) / pxPer), unit
+  );
+  const d0 = new Date(M.t0 * 1000); startOfDisplayDay(d0);
+  let tick = d0.getTime() / 1000;
+  let idx = Math.ceil((M.t0 - tick) / unit);
+  tick += idx * unit;
+  let lastRight = -Infinity;
+  for (; tick <= M.t0 + spanSec; tick += unit, idx++) {
     const x = ((tick - M.t0) / spanSec) * tlW;
     tctx.strokeStyle = TH.border; tctx.globalAlpha = 0.7;
     tctx.beginPath(); tctx.moveTo(x, 0); tctx.lineTo(x, tlH - 13); tctx.stroke();
     tctx.globalAlpha = 1;
     const d = new Date(tick * 1000);
-    const lbl = step >= 86400
-      ? `${two(clockPart(d, "getMonth", "getUTCMonth") + 1)}-${two(clockPart(d, "getDate", "getUTCDate"))}`
-      : `${two(clockPart(d, "getHours", "getUTCHours"))}:${two(clockPart(d, "getMinutes", "getUTCMinutes"))}`;
-    tctx.fillStyle = TH.muted; tctx.fillText(lbl, x + 3, tlH - 11);
+    const dow = clockPart(d, "getDay", "getUTCDay");
+    const dateLabel = `${two(clockPart(d, "getMonth", "getUTCMonth") + 1)}-${two(clockPart(d, "getDate", "getUTCDate"))}`;
+    const labeled = idx % labelEvery === 0;
+    tctx.fillStyle = TH.muted;
+    if (labeled) {
+      const lbl = unit >= 86400
+        ? (unit === 86400 ? `${WD3[dow]} ${dateLabel}` : dateLabel)
+        : unit < 60
+          ? `${two(clockPart(d, "getHours", "getUTCHours"))}:${two(clockPart(d, "getMinutes", "getUTCMinutes"))}:${two(clockPart(d, "getSeconds", "getUTCSeconds"))}`
+          : `${two(clockPart(d, "getHours", "getUTCHours"))}:${two(clockPart(d, "getMinutes", "getUTCMinutes"))}`;
+      tctx.globalAlpha = 1;
+      tctx.fillText(lbl, x + 3, tlH - 11);
+      lastRight = x + 3 + tctx.measureText(lbl).width;
+    } else if (unit === 86400) {
+      const w = tctx.measureText(WD[dow]).width;
+      const nextLabel = idx + (labelEvery - idx % labelEvery);
+      const nextDateX = x + (nextLabel - idx) * pxPer;
+      if (x - w / 2 > lastRight && x + w / 2 + LABEL_GAP_PX < nextDateX) {
+        tctx.textAlign = "center"; tctx.globalAlpha = 0.6;
+        tctx.fillText(WD[dow], x, tlH - 11);
+        tctx.textAlign = "left"; lastRight = x + w / 2;
+      }
+    }
   }
+  tctx.globalAlpha = 1;
   const yVals = [];
   if (yLog) {
     for (let d = Math.pow(10, Math.floor(Math.log10(peak))); d >= peak / 1000 && yVals.length < 3; d /= 10)
@@ -775,12 +900,13 @@ function drawTimeline() {
 
 /* ---------- formats ---------- */
 const fmtB = n => n < 1024 ? `${Math.round(n)} B` : n < 1048576 ? `${(n/1024).toFixed(1)} KB`
-  : n < 1073741824 ? `${(n/1048576).toFixed(1)} MB` : `${(n/1073741824).toFixed(2)} GB`;
+  : n < 1073741824 ? `${(n/1048576).toFixed(1)} MB`
+  : `${(n/1073741824).toLocaleString("en-US", {minimumFractionDigits:2, maximumFractionDigits:2})} GB`;
 const fmtN = n => {
   if (n === 0) return "0";
   if (n > 0 && n < 0.1) return "<0.1";
   if (Number.isInteger(n)) return Math.round(n).toLocaleString("en-US");
-  return n.toFixed(1);
+  return n.toLocaleString("en-US", {minimumFractionDigits:1, maximumFractionDigits:1});
 };
 const two = n => String(n).padStart(2, "0");
 const fmtStamp = sec => {
@@ -810,6 +936,7 @@ function stats(now) {
   lastStats = now;
   const d = new Date(Math.min(M.t0 + t * BIN, M.t1) * 1000);
   $("bc-time").textContent = `${two(clockPart(d, "getHours", "getUTCHours"))}:${two(clockPart(d, "getMinutes", "getUTCMinutes"))}:${two(clockPart(d, "getSeconds", "getUTCSeconds"))}`;
+  $("bc-day").textContent = WEEKDAYS[clockPart(d, "getDay", "getUTCDay")];
   $("bc-sub").textContent =
     `${clockPart(d, "getFullYear", "getUTCFullYear")}-${two(clockPart(d, "getMonth", "getUTCMonth")+1)}-${two(clockPart(d, "getDate", "getUTCDate"))} · ${TZ_LABEL}`;
   let rB = 0, rC = 0;
@@ -826,7 +953,8 @@ function stats(now) {
   const cB = fCum.b || cumB, cC = fCum.c || cumC;
   const tB = fTot.b || totB, tC = fTot.c || totC;
   $("st-cum").textContent = fmtB(cB[i0] + fr * tB[i0]);
-  $("st-conns").textContent = fmtN(cC[i0] + fr * tC[i0]);
+  const nConns = cC[i0] + fr * tC[i0];
+  $("st-conns").textContent = fmtN(M.weighted ? nConns : Math.floor(nConns));
   let act = 0;
   for (let i = 0; i < NF; i++) if (geom.fv[i] * geom.S >= 0.4) act++;
   $("st-active").textContent = fmtN(act);
@@ -1179,6 +1307,8 @@ function seg(id, cb) {
 seg("metric", b => { metric = b.dataset.m; tlPath = null; snapScale = true; lastRank = 0; });
 seg("mode", b => { mode = +b.dataset.mode; gradCache.clear(); snapScale = true; hover = null; });
 seg("yscale", b => { yLog = b.dataset.y === "log"; tlPath = null; });
+seg("fill", b => { ribbonStyle = b.dataset.f; });
+seg("breathe", b => { breathe = +b.dataset.breathe; snapScale = true; });
 seg("group", b => {
   buildModel(+b.dataset.g);
   resmooth();
@@ -1248,16 +1378,28 @@ document.addEventListener("keydown", ev => {
 
 /* ---------- header meta + schema parametrization ---------- */
 {
-  const parts = [M.source, `${fmtN(M.rows)} ${M.rows_label || "conns"}`,
-                 `${fmtStamp(M.t0)} → ${fmtStamp(M.t1)} ${TZ_LABEL} (${fmtDur(Math.round(M.t1 - M.t0))})`];
-  if (M.distinct_hosts != null)
-    parts.push(`${M.distinct_hosts} ${(M.hosts_label || "hosts seen").replace(" seen", "")}`);
-  parts.push(`bin ${fmtDur(BIN)}`, M.metric_note || "");
-  $("srcmeta").textContent = parts.filter(Boolean).join(" · ");
-  const footer = M.hunt_hint
-    ? `generated by ${M.generator || "sigwood"} · hunt this log: ${M.hunt_hint}`
-    : `generated by ${M.generator || "sigwood"} · hunt logs like this: sigwood hunt PATH`;
-  $("winnote").textContent = [footer, M.default_window_note].filter(Boolean).join(" · ");
+  const source = M.source || "graph source";
+  $("meta-source").textContent = source;
+  $("meta-source").title = source;
+  $("meta-window").textContent =
+    `${fmtStamp(M.t0)} → ${fmtStamp(M.t1)} ${TZ_LABEL} (${fmtDur(Math.round(M.t1 - M.t0))})`;
+  $("meta-count").textContent = `${fmtN(M.rows)} ${M.rows_label || "conns"}`;
+  const hasEntities = M.distinct_hosts != null;
+  $("meta-entities-cell").hidden = !hasEntities;
+  if (hasEntities)
+    $("meta-entities").textContent = `${fmtN(M.distinct_hosts)} ${M.hosts_label || "hosts seen"}`;
+  $("meta-bin").textContent = fmtDur(BIN);
+  const hasDerivation = Boolean(M.metric_note);
+  $("meta-derivation-cell").hidden = !hasDerivation;
+  if (hasDerivation) $("meta-derivation").textContent = M.metric_note;
+  const hunt = M.hunt_hint || "sigwood hunt PATH";
+  $("meta-hunt").textContent = hunt;
+  $("meta-hunt").title = hunt;
+  $("meta-generator").textContent = `generated by ${M.generator || "sigwood"}`;
+  const hasWindowNote = Boolean(M.default_window_note);
+  $("meta-window-dot").hidden = !hasWindowNote;
+  $("meta-window-note").hidden = !hasWindowNote;
+  if (hasWindowNote) $("meta-window-note").textContent = M.default_window_note;
   if (M.mid_label) {
     $("modemid").textContent = "+" + M.mid_label;
     $("ranktab-mid").textContent = M.mid_label;

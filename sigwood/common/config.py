@@ -115,8 +115,8 @@ _DEFAULTS: dict[str, Any] = {
     },
     "graph": {
         "target_bins": 2000,
-        "top_hosts": 24,
-        "top_services": 12,
+        "top_hosts": 30,
+        "top_services": 16,
         "domain_level": "domain",
     },
     "detectors": {},

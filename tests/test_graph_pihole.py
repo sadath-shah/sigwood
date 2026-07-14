@@ -49,6 +49,8 @@ def test_pihole_builder_deduplicates_raw_dispositions_and_weights_queries() -> N
 
     masses = _service_mass(payload)
     assert payload["meta"]["rows"] == 3
+    assert payload["meta"]["weighted"] is True
+    assert payload["meta"]["metric_note"] == "weighted by disposition share"
     assert masses == pytest.approx({"cached": 1.2, "forwarded": 0.8, "(unattributed)": 1.0})
     assert sum(payload["totC"]) == pytest.approx(3.0)
     assert all(isinstance(value, float) for value in payload["totC"])
